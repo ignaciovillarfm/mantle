@@ -1,0 +1,263 @@
+-- Sync calling presets with canonical ward list and remove non-listed entries.
+-- Also remove callings not mapped to the canonical list.
+
+with canonical(title, sort_order) as (
+  values
+    ('Bishop', 10),
+    ('First Counselor in the Bishopric', 20),
+    ('Second Counselor in the Bishopric', 30),
+    ('Ward Clerk', 40),
+    ('Assistant Ward Clerk', 50),
+    ('Ward Executive Secretary', 60),
+    ('Relief Society President', 100),
+    ('First Counselor in the Relief Society Presidency', 110),
+    ('Second Counselor in the Relief Society Presidency', 120),
+    ('Relief Society Secretary', 130),
+    ('Relief Society Teacher', 140),
+    ('Relief Society Ministering Coordinator', 150),
+    ('Elders Quorum President', 200),
+    ('First Counselor in the Elders Quorum Presidency', 210),
+    ('Second Counselor in the Elders Quorum Presidency', 220),
+    ('Elders Quorum Secretary', 230),
+    ('Elders Quorum Teacher', 240),
+    ('Elders Quorum Ministering Coordinator', 250),
+    ('Young Women President', 300),
+    ('First Counselor in the Young Women Presidency', 310),
+    ('Second Counselor in the Young Women Presidency', 320),
+    ('Young Women Secretary', 330),
+    ('Young Women Adviser', 340),
+    ('Young Women Class President', 350),
+    ('Young Women Class Counselor', 360),
+    ('Young Women Class Secretary', 370),
+    ('Primary President', 400),
+    ('First Counselor in the Primary Presidency', 410),
+    ('Second Counselor in the Primary Presidency', 420),
+    ('Primary Secretary', 430),
+    ('Primary Teacher', 440),
+    ('Primary Music Leader', 450),
+    ('Primary Pianist', 460),
+    ('Sunday School President', 500),
+    ('First Counselor in the Sunday School Presidency', 510),
+    ('Second Counselor in the Sunday School Presidency', 520),
+    ('Sunday School Secretary', 530),
+    ('Sunday School Teacher', 540),
+    ('Priests Quorum Adviser', 600),
+    ('Teachers Quorum Adviser', 610),
+    ('Deacons Quorum Adviser', 620),
+    ('Ward Music Chairman', 700),
+    ('Ward Music Director', 710),
+    ('Ward Pianist', 720),
+    ('Ward Organist', 730),
+    ('Choir Director', 740),
+    ('Choir Accompanist', 750),
+    ('Activities Committee Chair', 760),
+    ('Activities Committee Member', 770),
+    ('Ward Mission Leader', 800),
+    ('Ward Missionary', 810),
+    ('Temple and Family History Leader', 820),
+    ('Temple and Family History Consultant', 830),
+    ('Ward Technology Specialist', 840),
+    ('Ward Emergency Preparedness Coordinator', 850),
+    ('Ward Bulletin Specialist', 860),
+    ('Communication Specialist', 870),
+    ('Young Single Adult Representative', 880),
+    ('Single Adult Representative', 890),
+    ('Self-Reliance Specialist', 900),
+    ('Employment Specialist', 910),
+    ('Addiction Recovery Worker', 920),
+    ('Ward History Specialist', 930),
+    ('Seminary Specialist', 940),
+    ('Music Adviser', 950),
+    ('Ward Gardener', 960),
+    ('Outdoor Adventure Specialist', 970),
+    ('Youth Camp Leader', 980),
+    ('Youth Camp Committee Member', 990),
+    ('Quorum Presidency Member', 1000),
+    ('Class Presidency Member', 1010)
+),
+upsert_positions as (
+  insert into public.calling_positions (ward_id, title, sort_order)
+  select w.id, c.title, c.sort_order
+  from public.wards w
+  cross join canonical c
+  on conflict (ward_id, title)
+  do update set sort_order = excluded.sort_order
+  returning 1
+)
+select count(*) from upsert_positions;
+
+with canonical(title) as (
+  values
+    ('Bishop'),
+    ('First Counselor in the Bishopric'),
+    ('Second Counselor in the Bishopric'),
+    ('Ward Clerk'),
+    ('Assistant Ward Clerk'),
+    ('Ward Executive Secretary'),
+    ('Relief Society President'),
+    ('First Counselor in the Relief Society Presidency'),
+    ('Second Counselor in the Relief Society Presidency'),
+    ('Relief Society Secretary'),
+    ('Relief Society Teacher'),
+    ('Relief Society Ministering Coordinator'),
+    ('Elders Quorum President'),
+    ('First Counselor in the Elders Quorum Presidency'),
+    ('Second Counselor in the Elders Quorum Presidency'),
+    ('Elders Quorum Secretary'),
+    ('Elders Quorum Teacher'),
+    ('Elders Quorum Ministering Coordinator'),
+    ('Young Women President'),
+    ('First Counselor in the Young Women Presidency'),
+    ('Second Counselor in the Young Women Presidency'),
+    ('Young Women Secretary'),
+    ('Young Women Adviser'),
+    ('Young Women Class President'),
+    ('Young Women Class Counselor'),
+    ('Young Women Class Secretary'),
+    ('Primary President'),
+    ('First Counselor in the Primary Presidency'),
+    ('Second Counselor in the Primary Presidency'),
+    ('Primary Secretary'),
+    ('Primary Teacher'),
+    ('Primary Music Leader'),
+    ('Primary Pianist'),
+    ('Sunday School President'),
+    ('First Counselor in the Sunday School Presidency'),
+    ('Second Counselor in the Sunday School Presidency'),
+    ('Sunday School Secretary'),
+    ('Sunday School Teacher'),
+    ('Priests Quorum Adviser'),
+    ('Teachers Quorum Adviser'),
+    ('Deacons Quorum Adviser'),
+    ('Ward Music Chairman'),
+    ('Ward Music Director'),
+    ('Ward Pianist'),
+    ('Ward Organist'),
+    ('Choir Director'),
+    ('Choir Accompanist'),
+    ('Activities Committee Chair'),
+    ('Activities Committee Member'),
+    ('Ward Mission Leader'),
+    ('Ward Missionary'),
+    ('Temple and Family History Leader'),
+    ('Temple and Family History Consultant'),
+    ('Ward Technology Specialist'),
+    ('Ward Emergency Preparedness Coordinator'),
+    ('Ward Bulletin Specialist'),
+    ('Communication Specialist'),
+    ('Young Single Adult Representative'),
+    ('Single Adult Representative'),
+    ('Self-Reliance Specialist'),
+    ('Employment Specialist'),
+    ('Addiction Recovery Worker'),
+    ('Ward History Specialist'),
+    ('Seminary Specialist'),
+    ('Music Adviser'),
+    ('Ward Gardener'),
+    ('Outdoor Adventure Specialist'),
+    ('Youth Camp Leader'),
+    ('Youth Camp Committee Member'),
+    ('Quorum Presidency Member'),
+    ('Class Presidency Member')
+)
+delete from public.calling_positions cp
+where not exists (
+  select 1 from canonical c
+  where lower(trim(c.title)) = lower(trim(cp.title))
+);
+
+update public.callings c
+set
+  calling_position_id = cp.id,
+  name = cp.title
+from public.calling_positions cp
+where cp.ward_id = c.ward_id
+  and lower(trim(cp.title)) = lower(trim(c.name));
+
+delete from public.callings c
+where c.calling_position_id is null;
+
+-- Keep future ward defaults aligned with the same canonical list.
+create or replace function public.seed_calling_positions_for_ward(p_ward_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.calling_positions (ward_id, title, sort_order)
+  values
+    (p_ward_id, 'Bishop', 10),
+    (p_ward_id, 'First Counselor in the Bishopric', 20),
+    (p_ward_id, 'Second Counselor in the Bishopric', 30),
+    (p_ward_id, 'Ward Clerk', 40),
+    (p_ward_id, 'Assistant Ward Clerk', 50),
+    (p_ward_id, 'Ward Executive Secretary', 60),
+    (p_ward_id, 'Relief Society President', 100),
+    (p_ward_id, 'First Counselor in the Relief Society Presidency', 110),
+    (p_ward_id, 'Second Counselor in the Relief Society Presidency', 120),
+    (p_ward_id, 'Relief Society Secretary', 130),
+    (p_ward_id, 'Relief Society Teacher', 140),
+    (p_ward_id, 'Relief Society Ministering Coordinator', 150),
+    (p_ward_id, 'Elders Quorum President', 200),
+    (p_ward_id, 'First Counselor in the Elders Quorum Presidency', 210),
+    (p_ward_id, 'Second Counselor in the Elders Quorum Presidency', 220),
+    (p_ward_id, 'Elders Quorum Secretary', 230),
+    (p_ward_id, 'Elders Quorum Teacher', 240),
+    (p_ward_id, 'Elders Quorum Ministering Coordinator', 250),
+    (p_ward_id, 'Young Women President', 300),
+    (p_ward_id, 'First Counselor in the Young Women Presidency', 310),
+    (p_ward_id, 'Second Counselor in the Young Women Presidency', 320),
+    (p_ward_id, 'Young Women Secretary', 330),
+    (p_ward_id, 'Young Women Adviser', 340),
+    (p_ward_id, 'Young Women Class President', 350),
+    (p_ward_id, 'Young Women Class Counselor', 360),
+    (p_ward_id, 'Young Women Class Secretary', 370),
+    (p_ward_id, 'Primary President', 400),
+    (p_ward_id, 'First Counselor in the Primary Presidency', 410),
+    (p_ward_id, 'Second Counselor in the Primary Presidency', 420),
+    (p_ward_id, 'Primary Secretary', 430),
+    (p_ward_id, 'Primary Teacher', 440),
+    (p_ward_id, 'Primary Music Leader', 450),
+    (p_ward_id, 'Primary Pianist', 460),
+    (p_ward_id, 'Sunday School President', 500),
+    (p_ward_id, 'First Counselor in the Sunday School Presidency', 510),
+    (p_ward_id, 'Second Counselor in the Sunday School Presidency', 520),
+    (p_ward_id, 'Sunday School Secretary', 530),
+    (p_ward_id, 'Sunday School Teacher', 540),
+    (p_ward_id, 'Priests Quorum Adviser', 600),
+    (p_ward_id, 'Teachers Quorum Adviser', 610),
+    (p_ward_id, 'Deacons Quorum Adviser', 620),
+    (p_ward_id, 'Ward Music Chairman', 700),
+    (p_ward_id, 'Ward Music Director', 710),
+    (p_ward_id, 'Ward Pianist', 720),
+    (p_ward_id, 'Ward Organist', 730),
+    (p_ward_id, 'Choir Director', 740),
+    (p_ward_id, 'Choir Accompanist', 750),
+    (p_ward_id, 'Activities Committee Chair', 760),
+    (p_ward_id, 'Activities Committee Member', 770),
+    (p_ward_id, 'Ward Mission Leader', 800),
+    (p_ward_id, 'Ward Missionary', 810),
+    (p_ward_id, 'Temple and Family History Leader', 820),
+    (p_ward_id, 'Temple and Family History Consultant', 830),
+    (p_ward_id, 'Ward Technology Specialist', 840),
+    (p_ward_id, 'Ward Emergency Preparedness Coordinator', 850),
+    (p_ward_id, 'Ward Bulletin Specialist', 860),
+    (p_ward_id, 'Communication Specialist', 870),
+    (p_ward_id, 'Young Single Adult Representative', 880),
+    (p_ward_id, 'Single Adult Representative', 890),
+    (p_ward_id, 'Self-Reliance Specialist', 900),
+    (p_ward_id, 'Employment Specialist', 910),
+    (p_ward_id, 'Addiction Recovery Worker', 920),
+    (p_ward_id, 'Ward History Specialist', 930),
+    (p_ward_id, 'Seminary Specialist', 940),
+    (p_ward_id, 'Music Adviser', 950),
+    (p_ward_id, 'Ward Gardener', 960),
+    (p_ward_id, 'Outdoor Adventure Specialist', 970),
+    (p_ward_id, 'Youth Camp Leader', 980),
+    (p_ward_id, 'Youth Camp Committee Member', 990),
+    (p_ward_id, 'Quorum Presidency Member', 1000),
+    (p_ward_id, 'Class Presidency Member', 1010)
+  on conflict (ward_id, title) do update set sort_order = excluded.sort_order;
+end;
+$$;
