@@ -32,7 +32,8 @@ function LoginInner() {
           {err === "session_stale" && "Your session was ended. Please sign in again."}
           {err === "no_code" && "Missing OAuth code. Try again."}
           {err === "config" && "Server is missing Supabase configuration."}
-          {!["not_whitelisted", "session_stale", "no_code", "config"].includes(err) &&
+          {err === "oauth" && "Sign-in failed unexpectedly. Try again, or check server logs."}
+          {!["not_whitelisted", "session_stale", "no_code", "config", "oauth"].includes(err) &&
             `Error: ${err}`}
         </p>
       )}
