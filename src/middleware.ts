@@ -1,10 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabasePublishableUrl } from "@/lib/supabase/normalizeUrl";
 
 const SESSION_COOKIE = "ward_session_sig";
 
 export async function middleware(request: NextRequest) {
+  // OAuth return hits middleware before the route handler exchanges the code.
+  // Running Supabase getUser + cookie refresh here can throw in Edge (partial
+  // PKCE cookies only) and surface as HTTP 500 on /auth/callback.
+  if (request.nextUrl.pathname === "/auth/callback") {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   let url: string;
@@ -35,9 +43,13 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: User | null = null;
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    user = authData?.user ?? null;
+  } catch {
+    user = null;
+  }
 
   const isAuthRoute =
     request.nextUrl.pathname.startsWith("/login") ||
