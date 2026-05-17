@@ -41,21 +41,6 @@ export async function POST(
   }
   try {
     const body = await request.json().catch(() => ({}));
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "callings-advance-500-debug-1",
-        hypothesisId: "H4",
-        location: "api/edge/[name]/route.ts:POST:beforeInvoke",
-        message: "Invoking edge function from API wrapper",
-        data: { name, body },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     try {
       const data = await callEdgeFunction(name, { method: "POST", body });
       return NextResponse.json(data);
@@ -73,22 +58,6 @@ export async function POST(
         throw inner;
       }
 
-      // #region agent log
-      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-        body: JSON.stringify({
-          sessionId: "812a29",
-          runId: "callings-advance-500-debug-4",
-          hypothesisId: "H8",
-          location: "api/edge/[name]/route.ts:POST:legacyRetry",
-          message: "Retrying via To Interview bridge for legacy Stake Approval state",
-          data: { name, callingId: body.calling_id, requestedStatus: body.new_status },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-
       await callEdgeFunction(name, {
         method: "POST",
         body: { calling_id: body.calling_id, new_status: "To Interview" },
@@ -101,21 +70,6 @@ export async function POST(
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error";
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "callings-advance-500-debug-1",
-        hypothesisId: "H5",
-        location: "api/edge/[name]/route.ts:POST:catch",
-        message: "Edge API wrapper caught invoke error",
-        data: { name, errorMessage: msg },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     const status = msg.toLowerCase().includes("unauthorized") ? 401 : 500;
     return NextResponse.json({ error: msg }, { status });
   }

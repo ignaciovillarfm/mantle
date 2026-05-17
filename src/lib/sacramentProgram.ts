@@ -42,6 +42,23 @@ export const MAX_WARD_BUSINESS_RELEASE_ROWS = 24;
 
 export type SacramentFormLang = "en" | "es";
 
+/** Long meeting date for print header (e.g. "17 de mayo" / "May 17"). */
+export function formatSacramentMeetingDateLong(iso: string, lang: SacramentFormLang): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  if (lang === "es") {
+    return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "long" }).format(d);
+  }
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "2-digit" }).format(d);
+}
+
+/** Default PDF name when saving print preview (`document.title`). */
+export function sacramentPrintDocumentTitle(wardName: string, dateLabel: string): string {
+  const safeWard = wardName.replace(/[<>:"/\\|?*\n\r]/g, "").trim() || "Ward";
+  const safeDate = dateLabel.replace(/[<>:"/\\|?*\n\r]/g, "").trim() || "date";
+  return `${safeWard} - ${safeDate}`;
+}
+
 export type SacramentProgramBody = {
   greetingNote: string;
   recognitionNote: string;
@@ -63,6 +80,23 @@ export type SacramentProgramBody = {
   priesthoodInstruction: string;
 };
 
+/** Intro before the sacrament hymn on the printed program (EN / ES). */
+export const SACRAMENT_HYMN_INTRO = {
+  en: "We will now prepare for the distribution of the sacrament, and we will do so by singing the hymn...",
+  es: "A continuación nos prepararemos para la repartición de los sacramentos y lo haremos cantando el himno...",
+} as const;
+
+/** Default copy after the sacrament hymn (EN / ES). */
+export const SACRAMENT_REVERENCE_NOTE = {
+  en: "We thank you for your reverence during the administration of the sacrament.",
+  es: "Les agradecemos por su reverencia durante la administración de la Santa Cena.",
+} as const;
+
+export const SACRAMENT_PRIESTHOOD_INSTRUCTION = {
+  en: "We thank the priesthood; we ask that you may pass and sit with your families.",
+  es: "Agradecemos al sacerdocio; les pedimos que puedan pasar con sus familias.",
+} as const;
+
 export const DEFAULT_SACRAMENT_PROGRAM: SacramentProgramBody = {
   greetingNote: "",
   recognitionNote: "",
@@ -76,10 +110,8 @@ export const DEFAULT_SACRAMENT_PROGRAM: SacramentProgramBody = {
   sustainings: "",
   wardBusinessSections: [],
   preparationTheme: "",
-  reverenceNote:
-    "Les agradecemos por su reverencia durante la administración de la Santa Cena.",
-  priesthoodInstruction:
-    "Pedimos al sacerdocio que se sienten con sus familias después de pasar el sacramento.",
+  reverenceNote: SACRAMENT_REVERENCE_NOTE.es,
+  priesthoodInstruction: SACRAMENT_PRIESTHOOD_INSTRUCTION.es,
 };
 
 const WARD_KIND_SET = new Set<string>(WARD_BUSINESS_SECTION_KINDS);
@@ -126,6 +158,68 @@ export function wardBusinessSectionDefaultTitle(
  * Default wording when **adding** a ward-business section (editable afterward).
  * Spanish matches the ward’s phrasing; English is a structural draft until finalized.
  */
+export const NEW_MEMBERS_TEMPLATE_PLACEHOLDERS = ["[Familia y Nombres]", "[Family and names]"] as const;
+
+/** Stored as `"Apellido, Integrantes"` in `newMembersNames`. */
+export function parseNewMembersNames(raw: string): { familyName: string; familyMembers: string } {
+  const text = raw.trim();
+  if (!text) return { familyName: "", familyMembers: "" };
+  const firstComma = text.indexOf(",");
+  if (firstComma < 0) return { familyName: text, familyMembers: "" };
+  return {
+    familyName: text.slice(0, firstComma).trim(),
+    familyMembers: text.slice(firstComma + 1).trim(),
+  };
+}
+
+export function formatNewMembersNames(familyName: string, familyMembers: string): string {
+  const family = familyName.trim();
+  const members = familyMembers.trim();
+  if (family && members) return `${family}, ${members}`;
+  return family || members;
+}
+
+/** Spanish display for integrantes when stored text used English ward-program labels. */
+export function localizeNewMembersMembersLine(members: string, lang: SacramentFormLang): string {
+  if (lang !== "es" || !members.trim()) return members;
+  let out = members;
+  out = out.replace(/\bChildren:\s*/gi, "Hijos: ");
+  out = out.replace(/\bChild:\s*/gi, "Hijo: ");
+  out = out.replace(/\bSpouses:\s*/gi, "Cónyuges: ");
+  out = out.replace(/\bSpouse:\s*/gi, "Cónyuge: ");
+  out = out.replace(/\s+and\s+/gi, " y ");
+  return out;
+}
+
+export function newMembersDisplayValues(
+  section: Pick<WardBusinessSection, "newMembersNames" | "body">,
+  lang: SacramentFormLang,
+): { familyName: string; familyMembers: string } {
+  const raw = section.newMembersNames?.trim() || section.body?.trim() || "";
+  const parsed = parseNewMembersNames(raw);
+  return {
+    familyName: parsed.familyName,
+    familyMembers: localizeNewMembersMembersLine(parsed.familyMembers, lang),
+  };
+}
+
+/** Splits ward new-members template around the family/names placeholder for print and preview. */
+export function splitNewMembersTemplateBody(body: string): { before: string; after: string } {
+  const text = body.trim();
+  if (!text) return { before: "", after: "" };
+  for (const placeholder of NEW_MEMBERS_TEMPLATE_PLACEHOLDERS) {
+    const idx = text.indexOf(placeholder);
+    if (idx >= 0) {
+      const after = text.slice(idx + placeholder.length).trim().replace(/^[.,;:\s]+/, "");
+      return {
+        before: text.slice(0, idx).trim(),
+        after,
+      };
+    }
+  }
+  return { before: text, after: "" };
+}
+
 export function defaultWardBusinessSectionBody(kind: WardBusinessSectionKind, lang: SacramentFormLang): string {
   if (lang === "es") {
     switch (kind) {
@@ -269,10 +363,10 @@ export function buildWardBusinessSectionFromModal(
   }
 
   if (kind === "new_members") {
-    const family = fields.familyName.trim();
-    const members = fields.familyMembers.trim();
-    const f = family && members ? `${family}, ${members}` : family || members;
-    return { title, body: f };
+    return {
+      title,
+      body: formatNewMembersNames(fields.familyName, fields.familyMembers),
+    };
   }
 
   if (kind === "sustainings") {
@@ -280,31 +374,6 @@ export function buildWardBusinessSectionFromModal(
   }
 
   const template = defaultWardBusinessSectionBody("aaron_priesthood_ordination", lang);
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "ordination-text-debug-1",
-      hypothesisId: "H1",
-      location: "sacramentProgram.ts:buildWardBusinessSectionFromModal:ordination",
-      message: "Built ordination section body from modal",
-      data: {
-        lang,
-        ordinationRows: fields.ordinationRows.map((r) => ({ member_id: r.member_id, office: r.office })),
-        bodyPreview:
-          lang === "es"
-            ? template.replace(
-                "[FraseOrdenacion]",
-                "Se propone que [Nombre completo] reciba el Sacerdocio Aarónico y sea ordenado al oficio de [oficio], o que sea avanzado al oficio de [oficio] en el Sacerdocio Aarónico",
-              )
-            : template,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   if (lang === "es") {
     return { title, body: "" };
   }
@@ -520,6 +589,8 @@ export type TalkResponseStatus = "pending" | "accepted" | "declined";
 export type SpeakerSlot = {
   position: number;
   member_id: string | null;
+  /** Stake / visitor name when not a ward member (`member_id` null). */
+  guest_name?: string | null;
   topic: string | null;
   /** Invitation / follow-up (stored in `sacrament_participations` with prayers). */
   response_status?: TalkResponseStatus;
@@ -528,6 +599,21 @@ export type SpeakerSlot = {
   fulfilled?: boolean | null;
 };
 
+/** Guest/stake mode: `guest_name` is set (including empty while typing); ward mode uses `member_id`. */
+export function isGuestSpeakerSlot(slot: SpeakerSlot): boolean {
+  return slot.guest_name !== null && slot.guest_name !== undefined;
+}
+
+export function speakerSlotDisplayName(
+  slot: SpeakerSlot,
+  memberNameById: Map<string, string> | ReadonlyMap<string, string>,
+): string {
+  const guest = slot.guest_name?.trim();
+  if (guest) return guest;
+  if (slot.member_id) return memberNameById.get(slot.member_id) ?? "";
+  return "";
+}
+
 /** UI default: two speaker slots; DB allows up to eight discourse rows. */
 export const MIN_DISCOURSE_SLOTS = 2;
 export const MAX_DISCOURSE_SLOTS = 8;
@@ -535,6 +621,7 @@ export const MAX_DISCOURSE_SLOTS = 8;
 const emptySlot = (p: number): SpeakerSlot => ({
   position: p,
   member_id: null,
+  guest_name: null,
   topic: null,
   response_status: "pending",
   response_note: null,
@@ -577,9 +664,17 @@ export function normalizeSpeakerSlots(rows: SpeakerSlot[]): SpeakerSlot[] {
     const responseStatus = legacy.response_status ?? legacy.talk_response_status;
     const responseNote = legacy.response_note ?? legacy.talk_response_note;
     const fulfilledRaw = legacy.fulfilled ?? legacy.talk_delivered;
+    const guestRaw = r.guest_name;
     out.push({
       position: p,
       member_id: r.member_id,
+      guest_name: r.member_id
+        ? null
+        : typeof guestRaw === "string"
+          ? guestRaw
+          : guestRaw === null
+            ? null
+            : null,
       topic: r.topic,
       response_status: parseTalkResponseStatus(responseStatus),
       response_note: (typeof responseNote === "string" ? responseNote : null) ?? null,
@@ -587,4 +682,39 @@ export function normalizeSpeakerSlots(rows: SpeakerSlot[]): SpeakerSlot[] {
     });
   }
   return out;
+}
+
+/** Splits inline " - Next announcement" when a new item clearly starts (Spanish program copy). */
+const INLINE_ANNOUNCEMENT_SPLIT =
+  /\s+-\s+(?=Recordamos|Les invitamos|Les recordamos|Se invita|Se extiende|El día|\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre))/i;
+
+function normalizeAnnouncementLine(line: string): string {
+  return line.replace(/^[\s\-–—•*]+/, "").trim();
+}
+
+/** One row per announcement for print / multi-line editor (newline-separated in storage). */
+export function parseAnnouncementRows(raw: string): string[] {
+  const text = raw.trim();
+  if (!text) return [];
+
+  const rows: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(INLINE_ANNOUNCEMENT_SPLIT);
+    if (parts.length <= 1) {
+      const normalized = normalizeAnnouncementLine(trimmed);
+      if (normalized) rows.push(normalized);
+    } else {
+      for (const part of parts) {
+        const normalized = normalizeAnnouncementLine(part);
+        if (normalized) rows.push(normalized);
+      }
+    }
+  }
+  return rows;
+}
+
+export function serializeAnnouncementRows(rows: readonly string[]): string {
+  return rows.map((row) => row.trim()).filter(Boolean).join("\n");
 }

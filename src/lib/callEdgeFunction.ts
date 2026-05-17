@@ -37,26 +37,6 @@ export async function callEdgeFunction<T>(
         contextBody = null;
       }
     }
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "callings-advance-500-debug-2",
-        hypothesisId: "H6",
-        location: "lib/callEdgeFunction.ts:invokeError",
-        message: "Supabase function invoke failed with raw context",
-        data: {
-          functionName: name,
-          errorMessage: errAny?.message ?? String(error),
-          contextStatus,
-          contextBody,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     const detailed =
       contextStatus && contextBody
         ? `Function invocation failed (${contextStatus}): ${contextBody}`

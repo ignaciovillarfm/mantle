@@ -1,6 +1,7 @@
 "use client";
 
 import { AddWardBusinessSectionModal } from "./AddWardBusinessSectionModal";
+import { SpeakerSlotCard } from "./SpeakerSlotCard";
 import type { ApplyPreviousDraft } from "./applyPreviousWeekDraft";
 import type { SacramentPageBundle } from "./loadSacramentState";
 import {
@@ -11,11 +12,18 @@ import {
   MAX_WARD_BUSINESS_SECTIONS,
   MIN_DISCOURSE_SLOTS,
   normalizeSpeakerSlots,
+  parseAnnouncementRows,
+  newMembersDisplayValues,
   parseTalkResponseStatus,
+  splitNewMembersTemplateBody,
+  serializeAnnouncementRows,
   sacramentSundayLongLabel,
   shiftCalendarWeek,
   startOfWeekSundayFromISO,
   wardBusinessSectionDisplayOrder,
+  SACRAMENT_HYMN_INTRO,
+  SACRAMENT_PRIESTHOOD_INSTRUCTION,
+  SACRAMENT_REVERENCE_NOTE,
   wardBusinessSectionDefaultTitle,
   type SacramentFormLang,
   type SacramentProgramBody,
@@ -25,7 +33,9 @@ import {
 } from "@/lib/sacramentProgram";
 import { loadSacramentPageQuery } from "@/lib/sacrament/fetchSacramentPageJson";
 import { mergeSacramentBundleAfterSave } from "@/lib/sacrament/mergeSacramentBundleAfterSave";
+import { firstPoolMember, roleMemberOptions } from "@/lib/sacrament/sacramentRoles";
 import { SACRAMENT_PAGE_STALE_MS, sacramentQueryKeys } from "@/lib/sacrament/sacramentQueryKeys";
+import { MemberSearchSelect } from "@/components/MemberSearchSelect";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,7 +49,7 @@ const SACRAMENT_SELECT_ROW_CLASS =
   "mt-1 h-10 w-full rounded-lg border border-border bg-background py-0 pl-3 pr-10 text-sm leading-10 text-foreground disabled:opacity-50";
 /** Short notes beside assignment dropdowns — same visual height as selects */
 const SACRAMENT_ASSIGNMENT_NOTE_CLASS =
-  "mt-1 box-border h-10 min-h-10 w-full resize-none overflow-x-auto whitespace-nowrap rounded-lg border border-border bg-background px-3 py-0 text-sm leading-10 text-foreground outline-none disabled:opacity-50";
+  "mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none disabled:opacity-50";
 
 function serializeSacramentDraft(input: {
   program: SacramentProgramBody;
@@ -124,26 +134,6 @@ function SacramentSundayStrip({
     displayLongLabel.length > 0
       ? displayLongLabel.charAt(0).toUpperCase() + displayLongLabel.slice(1)
       : displayLongLabel;
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "sacrament-sunday-strip-debug-1",
-      hypothesisId: "H2",
-      location: "SacramentClient.tsx:SacramentSundayStrip",
-      message: "Computed Sunday strip labels",
-      data: {
-        lang,
-        inputDisplayLongLabel: displayLongLabel,
-        outputDisplayLongLabel: formattedLongLabel,
-        showWeekdayCaption: false,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   return (
     <div className="w-full min-w-0 rounded-lg border border-border bg-background/60 p-3">
@@ -215,34 +205,86 @@ function ReadonlyPairRow({
   );
 }
 
-function MemberSelect({
-  id,
+function rowsFromAnnouncementsValue(value: string): string[] {
+  const parsed = parseAnnouncementRows(value);
+  return parsed.length > 0 ? parsed : [""];
+}
+
+function AnnouncementRowsEditor({
   value,
   onChange,
-  members,
-  disabled,
+  lang,
 }: {
-  id: string;
-  value: string | null;
-  onChange: (v: string | null) => void;
-  members: { id: string; name: string }[];
-  disabled?: boolean;
+  value: string;
+  onChange: (next: string) => void;
+  lang: SacramentFormLang;
 }) {
+  const [rows, setRows] = useState(() => rowsFromAnnouncementsValue(value));
+  const lastSyncedValueRef = useRef(value);
+
+  useEffect(() => {
+    if (value === lastSyncedValueRef.current) return;
+    lastSyncedValueRef.current = value;
+    setRows(rowsFromAnnouncementsValue(value));
+  }, [value]);
+
+  useEffect(() => {
+    const serialized = serializeAnnouncementRows(rows);
+    if (serialized === lastSyncedValueRef.current) return;
+    lastSyncedValueRef.current = serialized;
+    onChange(serialized);
+  }, [rows, onChange]);
+
+  const updateRow = useCallback((index: number, text: string) => {
+    setRows((prev) => prev.map((row, i) => (i === index ? text : row)));
+  }, []);
+
+  const addRow = useCallback(() => {
+    setRows((prev) => [...prev, ""]);
+  }, []);
+
+  const removeRow = useCallback((index: number) => {
+    setRows((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      return next.length > 0 ? next : [""];
+    });
+  }, []);
+
   return (
-    <select
-      id={id}
-      disabled={disabled}
-      className={SACRAMENT_SELECT_ROW_CLASS}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value ? e.target.value : null)}
-    >
-      <option value="">—</option>
-      {members.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.name}
-        </option>
+    <div className="space-y-2">
+      {rows.map((row, index) => (
+        <div key={index} className="flex items-start gap-2">
+          <span className="mt-2.5 w-5 shrink-0 text-center text-xs font-medium tabular-nums text-foreground/45">
+            {index + 1}
+          </span>
+          <textarea
+            className="min-h-[56px] flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            value={row}
+            placeholder={formT(lang, {
+              en: "One announcement…",
+              es: "Un anuncio…",
+            })}
+            onChange={(e) => updateRow(index, e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => removeRow(index)}
+            disabled={rows.length <= 1 && !row.trim()}
+            aria-label={formT(lang, { en: "Remove announcement", es: "Quitar anuncio" })}
+            className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-lg text-foreground/45 hover:bg-red-500/10 hover:text-red-600 disabled:opacity-30"
+          >
+            ×
+          </button>
+        </div>
       ))}
-    </select>
+      <button
+        type="button"
+        onClick={addRow}
+        className="text-sm font-medium text-foreground/70 hover:text-foreground"
+      >
+        {formT(lang, { en: "+ Add announcement", es: "+ Agregar anuncio" })}
+      </button>
+    </div>
   );
 }
 
@@ -549,12 +591,13 @@ export function SacramentClient({
     if (didHydrateCurrentRouteRef.current && !navigated && hasLocalUnsavedChanges) return;
 
     const m = bundle.meeting;
+    const pool = bundle.rolePool;
     if (m) {
       setProgram(m.program);
-      setPresiding(m.presiding_member_id);
-      setConducting(m.conducting_id);
-      setChorister(m.chorister_member_id);
-      setOrganist(m.organist_member_id);
+      setPresiding(m.presiding_member_id ?? firstPoolMember(pool?.presiding ?? []));
+      setConducting(m.conducting_id ?? firstPoolMember(pool?.conducting ?? []));
+      setChorister(m.chorister_member_id ?? firstPoolMember(pool?.chorister ?? []));
+      setOrganist(m.organist_member_id ?? firstPoolMember(pool?.organist ?? []));
       setOpeningPrayer(m.opening_prayer_member_id);
       setClosingPrayer(m.closing_prayer_member_id);
       setOpeningPrayerResponse(parseTalkResponseStatus(m.opening_prayer_response_status));
@@ -565,10 +608,10 @@ export function SacramentClient({
       setClosingPrayerFulfilled(m.closing_prayer_fulfilled ?? null);
     } else {
       setProgram({ ...DEFAULT_SACRAMENT_PROGRAM });
-      setPresiding(null);
-      setConducting(null);
-      setChorister(null);
-      setOrganist(null);
+      setPresiding(firstPoolMember(pool?.presiding ?? []));
+      setConducting(firstPoolMember(pool?.conducting ?? []));
+      setChorister(firstPoolMember(pool?.chorister ?? []));
+      setOrganist(firstPoolMember(pool?.organist ?? []));
       setOpeningPrayer(null);
       setClosingPrayer(null);
       setOpeningPrayerResponse("pending");
@@ -664,27 +707,6 @@ export function SacramentClient({
           closing_prayer_fulfilled: closingPrayerFulfilled,
           speakers: normalizeSpeakerSlots(speakers),
         };
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-          body: JSON.stringify({
-            sessionId: "812a29",
-            runId: "ward-business-storage-normalization-debug-1",
-            hypothesisId: "H3",
-            location: "SacramentClient.tsx:autosavePayload",
-            message: "Normalized section bodies before save",
-            data: {
-              sectionKinds: programForSave.wardBusinessSections.map((s) => s.kind),
-              nonEmptyBodies: programForSave.wardBusinessSections.map((s) => ({
-                kind: s.kind,
-                hasBody: s.body.trim().length > 0,
-              })),
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         const http = await fetch("/api/sacrament/program", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -759,26 +781,6 @@ export function SacramentClient({
   ]);
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "sacrament-hymn-ui-debug-1",
-        hypothesisId: "H1",
-        location: "SacramentClient.tsx:hymnFields",
-        message: "Rendered hymn fields with split number/name UI",
-        data: {
-          openingHymn: program.openingHymn,
-          sacramentHymn: program.sacramentHymn,
-          closingHymn: program.closingHymn,
-          preparationTheme: program.preparationTheme,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [program.openingHymn, program.sacramentHymn, program.closingHymn, program.preparationTheme]);
 
   const applyPreviousWeek = useCallback(async () => {
@@ -1064,34 +1066,28 @@ export function SacramentClient({
     });
   }, []);
 
-  const strictRoleOptions = useCallback(
-    (ids: string[], currentId: string | null) => {
-      const byId = new Map(bundle?.members.map((m) => [m.id, m]) ?? []);
-      const filtered = ids.map((id) => byId.get(id)).filter((m): m is { id: string; name: string } => Boolean(m));
-      if (currentId && !filtered.some((m) => m.id === currentId)) {
-        const currentMember = byId.get(currentId);
-        if (currentMember) return [currentMember, ...filtered];
-      }
-      return filtered;
-    },
-    [bundle?.members],
-  );
+  const allMembers = bundle?.members ?? [];
+
+  const presidingPoolIds = bundle?.rolePool?.presiding ?? [];
+  const conductingPoolIds = bundle?.rolePool?.conducting ?? [];
+  const choristerPoolIds = bundle?.rolePool?.chorister ?? [];
+  const organistPoolIds = bundle?.rolePool?.organist ?? [];
 
   const presidingOptions = useMemo(
-    () => strictRoleOptions(bundle?.suggestions?.presidingIds ?? [], presiding),
-    [bundle?.suggestions?.presidingIds, strictRoleOptions, presiding],
+    () => roleMemberOptions(presidingPoolIds, presiding, allMembers),
+    [presidingPoolIds, presiding, allMembers],
   );
   const conductingOptions = useMemo(
-    () => strictRoleOptions(bundle?.suggestions?.conductingIds ?? [], conducting),
-    [bundle?.suggestions?.conductingIds, strictRoleOptions, conducting],
+    () => roleMemberOptions(conductingPoolIds, conducting, allMembers),
+    [conductingPoolIds, conducting, allMembers],
   );
   const choristerOptions = useMemo(
-    () => strictRoleOptions(bundle?.suggestions?.choristerIds ?? [], chorister),
-    [bundle?.suggestions?.choristerIds, strictRoleOptions, chorister],
+    () => roleMemberOptions(choristerPoolIds, chorister, allMembers),
+    [choristerPoolIds, chorister, allMembers],
   );
   const organistOptions = useMemo(
-    () => strictRoleOptions(bundle?.suggestions?.organistIds ?? [], organist),
-    [bundle?.suggestions?.organistIds, strictRoleOptions, organist],
+    () => roleMemberOptions(organistPoolIds, organist, allMembers),
+    [organistPoolIds, organist, allMembers],
   );
   const memberNameById = useMemo(
     () => new Map((bundle?.members ?? []).map((m) => [m.id, m.name])),
@@ -1113,71 +1109,9 @@ export function SacramentClient({
   }, [bundle?.sectionTemplates, formLang]);
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "ward-business-section-render-debug-1",
-        hypothesisId: "H2",
-        location: "SacramentClient.tsx:wardBusinessSectionCards",
-        message: "Rendered ward business section cards",
-        data: {
-          count: (program.wardBusinessSections ?? []).length,
-          kinds: (program.wardBusinessSections ?? []).map((s) => s.kind),
-          sustainingEntryCounts: (program.wardBusinessSections ?? []).map((s) =>
-            s.kind === "sustainings" ? s.sustainingEntries?.length ?? 0 : 0,
-          ),
-          releaseEntryCounts: (program.wardBusinessSections ?? []).map((s) =>
-            s.kind === "releases" ? s.releaseEntries?.length ?? 0 : 0,
-          ),
-          releaseLegacyLineCounts: (program.wardBusinessSections ?? []).map((s) =>
-            s.kind === "releases"
-              ? s.body
-                  .split("\n")
-                  .map((line) => line.trim())
-                  .filter((line) => line.includes("—")).length
-              : 0,
-          ),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [program.wardBusinessSections]);
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "sacrament-presidencia-filter-debug-1",
-        hypothesisId: "H1",
-        location: "SacramentClient.tsx:presidenciaOptions",
-        message: "Computed dropdown options for Presidencia y dirección",
-        data: {
-          wardId: effectiveWardId,
-          totalMembers: bundle?.members?.length ?? 0,
-          presidingSuggestedIds: bundle?.suggestions?.presidingIds?.length ?? 0,
-          conductingSuggestedIds: bundle?.suggestions?.conductingIds?.length ?? 0,
-          choristerSuggestedIds: bundle?.suggestions?.choristerIds?.length ?? 0,
-          organistSuggestedIds: bundle?.suggestions?.organistIds?.length ?? 0,
-          presidingOptionCount: presidingOptions.length,
-          conductingOptionCount: conductingOptions.length,
-          choristerOptionCount: choristerOptions.length,
-          organistOptionCount: organistOptions.length,
-          presidingTop: presidingOptions.slice(0, 5).map((m) => m.name),
-          conductingTop: conductingOptions.slice(0, 5).map((m) => m.name),
-          choristerTop: choristerOptions.slice(0, 5).map((m) => m.name),
-          organistTop: organistOptions.slice(0, 5).map((m) => m.name),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [
     bundle?.members,
     bundle?.suggestions?.presidingIds,
@@ -1190,30 +1124,6 @@ export function SacramentClient({
     organistOptions,
     effectiveWardId,
   ]);
-
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "sacrament-title-debug-1",
-      hypothesisId: "H1",
-      location: "SacramentClient.tsx:headerLabels",
-      message: "Computed sacrament page header labels",
-      data: {
-        effectiveWardId,
-        wardDisplayName,
-        showSundayFieldLabel: false,
-        presidingSuggestedCount: bundle?.suggestions?.presidingIds?.length ?? 0,
-        conductingSuggestedCount: bundle?.suggestions?.conductingIds?.length ?? 0,
-        choristerSuggestedCount: bundle?.suggestions?.choristerIds?.length ?? 0,
-        organistSuggestedCount: bundle?.suggestions?.organistIds?.length ?? 0,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 pb-8 text-foreground">
@@ -1238,7 +1148,7 @@ export function SacramentClient({
             target="_blank"
             className="rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-surface-hover"
           >
-            {formT(formLang, { en: "Print / PDF", es: "Imprimir / PDF" })}
+            {formT(formLang, { en: "View preview", es: "Ver vista previa" })}
           </Link>
           <div className="text-sm" aria-live="polite">
             {saveMsg ? (
@@ -1319,14 +1229,32 @@ export function SacramentClient({
           </section>
 
           <section className="rounded-xl border border-border bg-surface p-4">
-            <h2 className="text-lg font-semibold">
-              {formT(formLang, { en: "Presiding and conducting", es: "Presidencia y dirección" })}
-            </h2>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-lg font-semibold">
+                {formT(formLang, { en: "Presiding and conducting", es: "Presidencia y dirección" })}
+              </h2>
+              <Link
+                href={`/sacrament/settings?ward=${encodeURIComponent(effectiveWardId)}`}
+                className="text-sm text-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
+              >
+                {formT(formLang, {
+                  en: "Edit role members",
+                  es: "Configurar miembros por cargo",
+                })}
+              </Link>
+            </div>
+            <p className="mt-1 text-xs text-foreground/55">
+              {formT(formLang, {
+                en: "Only members you add in settings appear here. The assigned person is listed first.",
+                es: "Solo aparecen los miembros que agregue en configuración. La persona asignada se muestra primero.",
+              })}
+            </p>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div>
                 <FieldLabel lang={formLang} en="Presides" es="Preside" />
-                <MemberSelect
+                <MemberSearchSelect
                   id="presiding"
+                  lang={formLang}
                   members={presidingOptions}
                   value={presiding}
                   onChange={setPresiding}
@@ -1334,8 +1262,9 @@ export function SacramentClient({
               </div>
               <div>
                 <FieldLabel lang={formLang} en="Conducts" es="Dirige" />
-                <MemberSelect
+                <MemberSearchSelect
                   id="conducts"
+                  lang={formLang}
                   members={conductingOptions}
                   value={conducting}
                   onChange={setConducting}
@@ -1343,8 +1272,9 @@ export function SacramentClient({
               </div>
               <div>
                 <FieldLabel lang={formLang} en="Music leader / chorister" es="Corista" />
-                <MemberSelect
+                <MemberSearchSelect
                   id="chorister"
+                  lang={formLang}
                   members={choristerOptions}
                   value={chorister}
                   onChange={setChorister}
@@ -1352,8 +1282,9 @@ export function SacramentClient({
               </div>
               <div>
                 <FieldLabel lang={formLang} en="Organist / pianist" es="Organista" />
-                <MemberSelect
+                <MemberSearchSelect
                   id="organist"
+                  lang={formLang}
                   members={organistOptions}
                   value={organist}
                   onChange={setOrganist}
@@ -1372,11 +1303,19 @@ export function SacramentClient({
             <div className="mt-4 grid gap-4">
               <div>
                 <FieldLabel lang={formLang} en="Announcements" es="Anuncios" />
-                <textarea
-                  className="mt-1 min-h-[96px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  value={program.announcements}
-                  onChange={(e) => updateProgram("announcements", e.target.value)}
-                />
+                <p className="mt-0.5 text-xs text-foreground/55">
+                  {formT(formLang, {
+                    en: "Each box is one numbered row on the printed program.",
+                    es: "Cada cuadro es un renglón numerado en el programa impreso.",
+                  })}
+                </p>
+                <div className="mt-2">
+                  <AnnouncementRowsEditor
+                    value={program.announcements}
+                    onChange={(next) => updateProgram("announcements", next)}
+                    lang={formLang}
+                  />
+                </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -1390,8 +1329,9 @@ export function SacramentClient({
                 </div>
                 <div>
                   <FieldLabel lang={formLang} en="Opening prayer" es="Primera oración" />
-                  <MemberSelect
+                  <MemberSearchSelect
                     id="openPray"
+                    lang={formLang}
                     members={bundle.members}
                     value={openingPrayer}
                     onChange={(v) => {
@@ -1433,10 +1373,10 @@ export function SacramentClient({
                       en="Note (e.g. reason if declined)"
                       es="Nota (p. ej. motivo si declinó)"
                     />
-                    <textarea
+                    <input
+                      type="text"
                       disabled={!openingPrayer}
                       className={SACRAMENT_ASSIGNMENT_NOTE_CLASS}
-                      rows={1}
                       value={openingPrayerNote ?? ""}
                       onChange={(e) => setOpeningPrayerNote(e.target.value || null)}
                     />
@@ -1532,47 +1472,18 @@ export function SacramentClient({
                         if (hasTeacherOrPriest && teacherPriestText) return teacherPriestText;
                         return sec.body;
                       })()
-                    : sec.kind === "new_members"
-                      ? ((sec.templateKey ? sectionTemplateBodyByKey.get(sec.templateKey) : null) ?? sec.body)
                     : (sec.templateKey ? sectionTemplateBodyByKey.get(sec.templateKey) : null) ??
                       sec.body;
                 const newMembersParsed =
+                  sec.kind === "new_members" ? newMembersDisplayValues(sec, formLang) : null;
+                const newMembersTemplateParts =
                   sec.kind === "new_members"
-                    ? (() => {
-                        const raw = (sec.newMembersNames ?? "").trim();
-                        if (!raw) return { family: "", members: "" };
-                        const firstComma = raw.indexOf(",");
-                        if (firstComma < 0) return { family: raw, members: "" };
-                        return {
-                          family: raw.slice(0, firstComma).trim(),
-                          members: raw.slice(firstComma + 1).trim(),
-                        };
-                      })()
+                    ? splitNewMembersTemplateBody(
+                        (sec.templateKey ? sectionTemplateBodyByKey.get(sec.templateKey) : null)?.trim() ??
+                          "",
+                      )
                     : null;
                 if (sec.kind === "aaron_priesthood_ordination") {
-                  // #region agent log
-                  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-                    body: JSON.stringify({
-                      sessionId: "812a29",
-                      runId: "ordination-text-debug-1",
-                      hypothesisId: "H2",
-                      location: "SacramentClient.tsx:wardBusiness:ordinationRender",
-                      message: "Rendered ordination section text and entries",
-                      data: {
-                        sectionId: sec.id,
-                        savedBody: sec.body,
-                        displayBody,
-                        ordinationEntriesCount: sec.ordinationEntries?.length ?? 0,
-                        ordinationEntrySample: (sec.ordinationEntries ?? []).slice(0, 3),
-                        deaconEntriesCount: ordinationDeaconEntries.length,
-                        teacherPriestEntriesCount: ordinationTeacherPriestEntries.length,
-                      },
-                      timestamp: Date.now(),
-                    }),
-                  }).catch(() => {});
-                  // #endregion
                 }
 
                 return (
@@ -1613,7 +1524,7 @@ export function SacramentClient({
                       </button>
                     </div>
                   </div>
-                  {sec.kind !== "aaron_priesthood_ordination" ? (
+                  {sec.kind !== "aaron_priesthood_ordination" && sec.kind !== "new_members" ? (
                     <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
                       {displayBody}
                     </div>
@@ -1660,14 +1571,24 @@ export function SacramentClient({
                     </div>
                   ) : null}
                   {sec.kind === "new_members" ? (
-                    <div className="space-y-1">
+                    <div className="space-y-2">
+                      {newMembersTemplateParts?.before ? (
+                        <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+                          {newMembersTemplateParts.before}
+                        </p>
+                      ) : null}
                       <ReadonlyPairRow
                         leftLabel={formT(formLang, { en: "Family name", es: "Apellido de familia" })}
                         rightLabel={formT(formLang, { en: "Members", es: "Integrantes" })}
-                        leftValue={newMembersParsed?.family ?? ""}
-                        rightValue={newMembersParsed?.members ?? ""}
+                        leftValue={newMembersParsed?.familyName ?? ""}
+                        rightValue={newMembersParsed?.familyMembers ?? ""}
                         showLabels
                       />
+                      {newMembersTemplateParts?.after ? (
+                        <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+                          {newMembersTemplateParts.after}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                   {sec.kind === "aaron_priesthood_ordination" ? (
@@ -1769,6 +1690,12 @@ export function SacramentClient({
               {formT(formLang, { en: "Sacrament service", es: "Servicio sacramental" })}
             </h2>
             <div className="mt-4 grid gap-4">
+              <p className="text-sm text-foreground/75">
+                {formT(formLang, {
+                  en: SACRAMENT_HYMN_INTRO.en,
+                  es: SACRAMENT_HYMN_INTRO.es,
+                })}
+              </p>
               <div>
                 <FieldLabel lang={formLang} en="Sacramental hymn" es="Himno sacramental" />
                 <HymnInput
@@ -1791,14 +1718,14 @@ export function SacramentClient({
                 </div>
                 <p>
                   {formT(formLang, {
-                    en: "We thank you for your reverence during the administration of the sacrament.",
-                    es: "Les agradecemos por su reverencia durante la administración de la Santa Cena.",
+                    en: SACRAMENT_REVERENCE_NOTE.en,
+                    es: SACRAMENT_REVERENCE_NOTE.es,
                   })}
                 </p>
                 <p className="mt-1">
                   {formT(formLang, {
-                    en: "We ask the priesthood to sit with their families after passing the sacrament.",
-                    es: "Agradecemos al sacerdocio; les pedimos que puedan pasar con sus familias.",
+                    en: SACRAMENT_PRIESTHOOD_INSTRUCTION.en,
+                    es: SACRAMENT_PRIESTHOOD_INSTRUCTION.es,
                   })}
                 </p>
               </div>
@@ -1834,149 +1761,24 @@ export function SacramentClient({
                   </p>
                 </div>
                 {displaySpeakers.map((slot, idx) => (
-                  <div key={slot.position} className="space-y-3 rounded-lg border border-border bg-background p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <p className="text-xs font-medium text-foreground/55">
-                        {formT(formLang, {
-                          en: `Speaker ${slot.position}`,
-                          es: `Discurso ${slot.position}`,
-                        })}
-                      </p>
-                      {displaySpeakers.length > MIN_DISCOURSE_SLOTS ? (
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-surface-hover"
-                          onClick={() => removeSpeakerSlotAtIndex(idx)}
-                        >
-                          {formT(formLang, { en: "Remove", es: "Quitar" })}
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <FieldLabel lang={formLang} en="Member" es="Miembro" />
-                        <MemberSelect
-                          id={`sp-${slot.position}`}
-                          members={bundle.members}
-                          value={slot.member_id ?? null}
-                          onChange={(v) =>
-                            setSpeakers((prev) => {
-                              const next = [...normalizeSpeakerSlots(prev)];
-                              const prevMember = next[idx]?.member_id;
-                              next[idx] = {
-                                ...next[idx],
-                                member_id: v,
-                                ...(prevMember !== v
-                                  ? {
-                                      response_status: "pending" as const,
-                                      response_note: null,
-                                      fulfilled: null,
-                                    }
-                                  : {}),
-                              };
-                              return next;
-                            })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <FieldLabel lang={formLang} en="Topic (optional)" es="Tema (opcional)" />
-                        <input
-                          type="text"
-                          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                          value={slot.topic ?? ""}
-                          onChange={(e) =>
-                            setSpeakers((prev) => {
-                              const next = [...normalizeSpeakerSlots(prev)];
-                              next[idx] = { ...next[idx], topic: e.target.value || null };
-                              return next;
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="border-t border-border pt-3">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">
-                        {formT(formLang, {
-                          en: "Assignment (shown on Members tab)",
-                          es: "Asignación (visible en Miembros)",
-                        })}
-                      </p>
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <div>
-                          <FieldLabel lang={formLang} en="Response" es="Respuesta" />
-                          <select
-                            id={`sp-res-${slot.position}`}
-                            disabled={!slot.member_id}
-                            className={SACRAMENT_SELECT_ROW_CLASS}
-                            value={slot.response_status ?? "pending"}
-                            onChange={(e) =>
-                              setSpeakers((prev) => {
-                                const next = [...normalizeSpeakerSlots(prev)];
-                                next[idx] = {
-                                  ...next[idx],
-                                  response_status: e.target.value as TalkResponseStatus,
-                                };
-                                return next;
-                              })
-                            }
-                          >
-                            <option value="pending">{formT(formLang, { en: "Pending", es: "Pendiente" })}</option>
-                            <option value="accepted">{formT(formLang, { en: "Accepted", es: "Aceptó" })}</option>
-                            <option value="declined">{formT(formLang, { en: "Declined", es: "Declinó" })}</option>
-                          </select>
-                        </div>
-                        <div className="sm:col-span-1">
-                          <FieldLabel
-                            lang={formLang}
-                            en="Note (e.g. reason if declined)"
-                            es="Nota (p. ej. motivo si declinó)"
-                          />
-                          <textarea
-                            disabled={!slot.member_id}
-                            className={SACRAMENT_ASSIGNMENT_NOTE_CLASS}
-                            rows={1}
-                            value={slot.response_note ?? ""}
-                            onChange={(e) =>
-                              setSpeakers((prev) => {
-                                const next = [...normalizeSpeakerSlots(prev)];
-                                next[idx] = { ...next[idx], response_note: e.target.value || null };
-                                return next;
-                              })
-                            }
-                          />
-                        </div>
-                        <div>
-                          <FieldLabel
-                            lang={formLang}
-                            en="Spoke that Sunday?"
-                            es="¿Discursó ese domingo?"
-                          />
-                          <select
-                            id={`sp-del-${slot.position}`}
-                            disabled={!slot.member_id}
-                            className={SACRAMENT_SELECT_ROW_CLASS}
-                            value={
-                              slot.fulfilled === true ? "yes" : slot.fulfilled === false ? "no" : ""
-                            }
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              const delivered = v === "yes" ? true : v === "no" ? false : null;
-                              setSpeakers((prev) => {
-                                const next = [...normalizeSpeakerSlots(prev)];
-                                next[idx] = { ...next[idx], fulfilled: delivered };
-                                return next;
-                              });
-                            }}
-                          >
-                            <option value="">{formT(formLang, { en: "Unknown", es: "Desconocido" })}</option>
-                            <option value="yes">{formT(formLang, { en: "Yes", es: "Sí" })}</option>
-                            <option value="no">{formT(formLang, { en: "No (no-show)", es: "No (no asistió)" })}</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <SpeakerSlotCard
+                    key={slot.position}
+                    slot={slot}
+                    lang={formLang}
+                    members={bundle.members}
+                    memberName={
+                      slot.member_id ? (memberNameById.get(slot.member_id) ?? null) : null
+                    }
+                    canRemove={displaySpeakers.length > MIN_DISCOURSE_SLOTS}
+                    onRemove={() => removeSpeakerSlotAtIndex(idx)}
+                    onChange={(next) =>
+                      setSpeakers((prev) => {
+                        const slots = [...normalizeSpeakerSlots(prev)];
+                        slots[idx] = next;
+                        return slots;
+                      })
+                    }
+                  />
                 ))}
                 {displaySpeakers.length < MAX_DISCOURSE_SLOTS ? (
                   <button
@@ -2001,8 +1803,9 @@ export function SacramentClient({
                   </div>
                   <div>
                     <FieldLabel lang={formLang} en="Closing prayer" es="Última oración" />
-                    <MemberSelect
+                    <MemberSearchSelect
                       id="closePray"
+                      lang={formLang}
                       members={bundle.members}
                       value={closingPrayer}
                       onChange={(v) => {
@@ -2044,10 +1847,10 @@ export function SacramentClient({
                         en="Note (e.g. reason if declined)"
                         es="Nota (p. ej. motivo si declinó)"
                       />
-                      <textarea
+                      <input
+                        type="text"
                         disabled={!closingPrayer}
                         className={SACRAMENT_ASSIGNMENT_NOTE_CLASS}
-                        rows={1}
                         value={closingPrayerNote ?? ""}
                         onChange={(e) => setClosingPrayerNote(e.target.value || null)}
                       />

@@ -76,25 +76,6 @@ export function AddCallingModal({
   }, [presetOptions]);
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "calling-grouping-debug-1",
-        hypothesisId: "H1",
-        location: "AddCallingModal.tsx:groupedPresetOptions",
-        message: "Computed grouped calling preset options",
-        data: {
-          wardId,
-          groupCount: groupedPresetOptions.length,
-          groups: groupedPresetOptions.map((g) => ({ key: g.key, count: g.options.length })),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [groupedPresetOptions, wardId]);
 
   const canUse = wards.length > 0;

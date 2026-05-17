@@ -27,22 +27,6 @@ export function OrganizationGroupsModal({
   const [openKey, setOpenKey] = useState<string | null>(null);
   const openGroup = useMemo(() => groups.find((g) => g.key === openKey) ?? null, [groups, openKey]);
 
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "org-modal-debug-1",
-      hypothesisId: "H12",
-      location: "OrganizationGroupsModal.tsx:render",
-      message: "Rendered organization title chips for modal flow",
-      data: { wardId, groupCount: groups.length, labels: groups.map((g) => g.label) },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   return (
     <>
       <div className="rounded-lg border border-border bg-background p-3">
@@ -55,21 +39,6 @@ export function OrganizationGroupsModal({
               className="rounded-md border border-border bg-surface px-2.5 py-1 text-sm text-foreground/80 hover:bg-foreground/5"
               onClick={() => {
                 setOpenKey(group.key);
-                // #region agent log
-                fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-                  body: JSON.stringify({
-                    sessionId: "812a29",
-                    runId: "org-modal-debug-1",
-                    hypothesisId: "H13",
-                    location: "OrganizationGroupsModal.tsx:openModal",
-                    message: "Opened organization diagram modal",
-                    data: { wardId, groupKey: group.key, label: group.label, rowCount: group.rows.length },
-                    timestamp: Date.now(),
-                  }),
-                }).catch(() => {});
-                // #endregion
               }}
             >
               {group.label}

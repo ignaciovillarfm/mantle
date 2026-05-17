@@ -122,24 +122,6 @@ export async function WardLeadershipView() {
   const supabase = await createClient();
   const wardRoles = await fetchUserWardRoles();
   const wardIds = Array.from(new Set(wardRoles.map((r) => r.ward_id)));
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "org-bishopric-debug-1",
-      hypothesisId: "H1",
-      location: "WardLeadershipView.tsx:wardScope",
-      message: "Loaded ward scope from user_roles",
-      data: {
-        wardRoleCount: wardRoles.length,
-        wardIds,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   const { data: wards } = await supabase
     .from("wards")
@@ -169,50 +151,7 @@ export async function WardLeadershipView() {
 
   const callings = (callingsData ?? []) as unknown as CallingRow[];
   const positions = (positionData ?? []) as unknown as CallingPositionRow[];
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "org-bishopric-debug-1",
-      hypothesisId: "H2",
-      location: "WardLeadershipView.tsx:callingsRaw",
-      message: "Fetched callings before active-status filtering",
-      data: {
-        callingCount: callings.length,
-        byStatus: callings.reduce<Record<string, number>>((acc, c) => {
-          const k = String(c.status ?? "null");
-          acc[k] = (acc[k] ?? 0) + 1;
-          return acc;
-        }, {}),
-        bishopricNamedCount: callings.filter((c) => isBishopricCalling(c.name)).length,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "org-unassigned-debug-2",
-      hypothesisId: "H5",
-      location: "WardLeadershipView.tsx:positionsCatalog",
-      message: "Loaded canonical calling positions for ward diagrams",
-      data: {
-        positionCount: positions.length,
-        positionsByWard: positions.reduce<Record<string, number>>((acc, p) => {
-          acc[p.ward_id] = (acc[p.ward_id] ?? 0) + 1;
-          return acc;
-        }, {}),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
+
 
   const bishopricByWard = new Map<string, CallingRow[]>();
   const leadersByWard = new Map<string, CallingRow[]>();
@@ -228,27 +167,6 @@ export async function WardLeadershipView() {
       leadersByWard.set(c.ward_id, arr);
     }
   }
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "org-bishopric-debug-1",
-      hypothesisId: "H3",
-      location: "WardLeadershipView.tsx:classification",
-      message: "Classified active callings into bishopric and organization buckets",
-      data: {
-        bishopricByWard: Array.from(bishopricByWard.entries()).map(([k, rows]) => ({
-          wardId: k,
-          count: rows.length,
-          names: rows.map((r) => `${r.name}::${r.status}`),
-        })),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   return (
     <div className="space-y-6">
@@ -258,61 +176,8 @@ export async function WardLeadershipView() {
           formatRole(a.name).localeCompare(formatRole(b.name)),
         );
         const slots = assignBishopricSlots(bishopric);
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-          body: JSON.stringify({
-            sessionId: "812a29",
-            runId: "org-bishopric-debug-1",
-            hypothesisId: "H4",
-            location: "WardLeadershipView.tsx:slotAssignment",
-            message: "Computed bishopric slots for ward",
-            data: {
-              wardId,
-              bishopricRows: bishopric.map((r) => ({
-                name: r.name,
-                status: r.status,
-                member: r.members?.name ?? null,
-              })),
-              slots,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         const leaders = leadersByWard.get(wardId) ?? [];
         const wardPositions = positions.filter((p) => p.ward_id === wardId);
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-          body: JSON.stringify({
-            sessionId: "812a29",
-            runId: "org-unassigned-debug-2",
-            hypothesisId: "H6",
-            location: "WardLeadershipView.tsx:expectedVsAssigned",
-            message: "Compared expected calling positions to assigned rows",
-            data: {
-              wardId,
-              expectedCount: wardPositions.length,
-              assignedCount: leaders.length + bishopric.length,
-              missingSample: wardPositions
-                .filter(
-                  (p) =>
-                    !callings.some(
-                      (c) =>
-                        c.ward_id === wardId &&
-                        c.name.trim().toLowerCase() === p.title.trim().toLowerCase(),
-                    ),
-                )
-                .slice(0, 10)
-                .map((p) => p.title),
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         const grouped = new Map<OrgGroupKey, CallingRow[]>();
         for (const c of leaders) {
           const g = callingOrgGroup(c.name);
@@ -367,32 +232,6 @@ export async function WardLeadershipView() {
             bishopricClericalGroup?.rows.find((r) => normalizeTitle(r.title) === "ward executive secretary")
               ?.memberName ?? null,
         };
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-          body: JSON.stringify({
-            sessionId: "812a29",
-            runId: "org-unassigned-debug-4-post-fix",
-            hypothesisId: "H7",
-            location: "WardLeadershipView.tsx:renderedGroups",
-            message: "Built organization UI model (bishopric detailed, other groups title-only)",
-            data: {
-              wardId,
-              uiMode: "bishopric-diagram-includes-clerical-no-second-div",
-              bishopricClericalPreview: (expectedGrouped.get("bishopric_clerical") ?? []).map((r) => ({
-                title: r.title,
-                member: r.memberName,
-              })),
-              bishopricSlots,
-              hasSeparateBishopricDiv: false,
-              otherGroupTitles: otherGroups.map((g) => g.label),
-              groupSizes: orderedGroups.map((g) => ({ key: g.key, count: g.rows.length })),
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
 
         return (
           <section key={wardId} className="space-y-4 rounded-xl border border-border bg-surface p-4">

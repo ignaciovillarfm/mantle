@@ -1,14 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { AppModal } from "@/components/AppModal";
+import { MemberSearchSelect } from "@/components/MemberSearchSelect";
 import { GroupedCallingSelect } from "@/components/GroupedCallingSelect";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   buildWardBusinessSectionFromModal,
   defaultTemplateKeyForWardKind,
+  formatNewMembersNames,
+  localizeNewMembersMembersLine,
   initialWardBusinessModalFields,
   MAX_WARD_BUSINESS_RELEASE_ROWS,
   newWardBusinessOrdinationRow,
   newWardBusinessReleaseRow,
+  parseNewMembersNames,
   WARD_BUSINESS_SECTION_KINDS,
   wardBusinessSectionDefaultTitle,
   type SacramentFormLang,
@@ -19,38 +24,6 @@ import {
 
 function ft(lang: SacramentFormLang, b: { en: string; es: string }) {
   return lang === "es" ? b.es : b.en;
-}
-
-function WardMemberSelect({
-  id,
-  value,
-  onChange,
-  members,
-  formLang,
-  className = "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm",
-}: {
-  id: string;
-  value: string | null;
-  onChange: (memberId: string | null) => void;
-  members: { id: string; name: string }[];
-  formLang: SacramentFormLang;
-  className?: string;
-}) {
-  return (
-    <select
-      id={id}
-      className={className}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value ? e.target.value : null)}
-    >
-      <option value="">{ft(formLang, { en: "— Select member —", es: "— Elegir miembro —" })}</option>
-      {members.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.name}
-        </option>
-      ))}
-    </select>
-  );
 }
 
 function WardBusinessPersonFields({
@@ -95,21 +68,6 @@ function WardBusinessPersonFields({
   onAdd?: () => void;
 }) {
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "ward-business-shared-component-debug-1",
-        hypothesisId: "H1",
-        location: "AddWardBusinessSectionModal.tsx:WardBusinessPersonFields",
-        message: "Shared ward-business person component rendered",
-        data: { variant, rowId, showCalling, showOffice, hasRemove: Boolean(onRemove), hasAdd: Boolean(onAdd) },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [onAdd, onRemove, rowId, showCalling, showOffice, variant]);
 
   return (
@@ -120,12 +78,13 @@ function WardBusinessPersonFields({
             {ft(formLang, { en: "Name", es: "Nombre" })}
           </label>
         ) : null}
-        <WardMemberSelect
+        <MemberSearchSelect
           id={`ward-person-member-${rowId}`}
+          lang={formLang}
           members={members}
-          formLang={formLang}
           value={memberId}
           onChange={onMemberChange}
+          className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 text-left text-sm"
         />
       </div>
 
@@ -225,17 +184,6 @@ function WardBusinessPersonFields({
   );
 }
 
-function splitNewMembersNames(raw: string): { familyName: string; familyMembers: string } {
-  const text = raw.trim();
-  if (!text) return { familyName: "", familyMembers: "" };
-  const firstComma = text.indexOf(",");
-  if (firstComma < 0) return { familyName: text, familyMembers: "" };
-  return {
-    familyName: text.slice(0, firstComma).trim(),
-    familyMembers: text.slice(firstComma + 1).trim(),
-  };
-}
-
 const SECTION_KIND_ORDER: WardBusinessSectionKind[] = [
   "releases",
   "sustainings",
@@ -285,62 +233,10 @@ export function AddWardBusinessSectionModal({
   );
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "sacrament-calling-translation-debug-1",
-        hypothesisId: "H3",
-        location: "AddWardBusinessSectionModal.tsx:localizedCallingOptions",
-        message: "Computed localized calling options for sacrament modal",
-        data: {
-          lang: formLang,
-          optionCount: localizedCallingOptions.length,
-          sample: localizedCallingOptions.slice(0, 5).map((o) => o.title),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [formLang, localizedCallingOptions]);
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "sacrament-relevos-ordination-ui-debug-1",
-        hypothesisId: "H1",
-        location: "AddWardBusinessSectionModal.tsx:kindSwitch",
-        message: "Rendered ward-business kind specific UI",
-        data: { kind, releaseRowsCount: fields.releaseRows.length, hasOrdinationCallingField: false },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [fields.releaseRows.length, kind]);
-
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -348,7 +244,7 @@ export function AddWardBusinessSectionModal({
       setKind(editingSection.kind);
       setFields((prev) => ({
         ...prev,
-        ...splitNewMembersNames(editingSection.newMembersNames ?? ""),
+        ...parseNewMembersNames(editingSection.newMembersNames ?? ""),
         releaseRows:
           editingSection.releaseEntries && editingSection.releaseEntries.length > 0
             ? editingSection.releaseEntries.map((e) => ({
@@ -405,27 +301,7 @@ export function AddWardBusinessSectionModal({
         office: r.office,
       }))
       .filter((e) => e.memberId && e.office);
-    const newMembersNames = [fields.familyName.trim(), fields.familyMembers.trim()].filter(Boolean).join(", ");
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "sacrament-new-members-debug-1",
-        hypothesisId: "H9",
-        location: "AddWardBusinessSectionModal.tsx:submit:newMembers",
-        message: "Composed new-members names from separate family + members fields",
-        data: {
-          kind,
-          familyName: fields.familyName.trim(),
-          familyMembers: fields.familyMembers.trim(),
-          newMembersNames,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    const newMembersNames = formatNewMembersNames(fields.familyName, fields.familyMembers);
     onConfirm({
       kind,
       title: built.title,
@@ -446,35 +322,44 @@ export function AddWardBusinessSectionModal({
     });
   }, [atCapacity, editingSection, fields, formLang, kind, localizedCallingOptions, members, onConfirm]);
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
+    <AppModal
+      open={open}
+      onClose={close}
+      titleId="ward-add-section-title"
+      sheetOnMobile
+      title={
+        editingSection
+          ? ft(formLang, { en: "Edit ward business section", es: "Editar sección de asuntos del barrio" })
+          : ft(formLang, { en: "Add ward business section", es: "Agregar sección de asuntos del barrio" })
+      }
+      description={ft(formLang, {
+        en: "Choose the type, fill the fields, then add. You can still edit everything afterward.",
+        es: "Elige el tipo, completa los campos y agrega. Luego puedes editar todo en el programa.",
+      })}
+      closeLabel={ft(formLang, { en: "Close", es: "Cerrar" })}
+      footer={
+        <div className="flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface-hover"
+            onClick={close}
+          >
+            {ft(formLang, { en: "Cancel", es: "Cancelar" })}
+          </button>
+          <button
+            type="button"
+            disabled={!kind || (atCapacity && !editingSection)}
+            className="rounded-lg border border-border bg-foreground px-4 py-2 text-sm text-background hover:opacity-90 disabled:opacity-50"
+            onClick={() => void submit()}
+          >
+            {editingSection
+              ? ft(formLang, { en: "Save changes", es: "Guardar cambios" })
+              : ft(formLang, { en: "Add section", es: "Agregar sección" })}
+          </button>
+        </div>
+      }
     >
-      <div
-        className="max-h-[min(90vh,720px)] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-lg"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ward-add-section-title"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <h2 id="ward-add-section-title" className="text-lg font-semibold text-foreground">
-          {editingSection
-            ? ft(formLang, { en: "Edit ward business section", es: "Editar sección de asuntos del barrio" })
-            : ft(formLang, { en: "Add ward business section", es: "Agregar sección de asuntos del barrio" })}
-        </h2>
-        <p className="mt-1 text-sm text-foreground/70">
-          {ft(formLang, {
-            en: "Choose the type, fill the fields, then add. You can still edit everything afterward.",
-            es: "Elige el tipo, completa los campos y agrega. Luego puedes editar todo en el programa.",
-          })}
-        </p>
-
         {atCapacity ? (
           <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">
             {ft(formLang, {
@@ -645,8 +530,8 @@ export function AddWardBusinessSectionModal({
                   value={fields.familyName}
                   onChange={(e) => setFields((f) => ({ ...f, familyName: e.target.value }))}
                   placeholder={ft(formLang, {
-                    en: "e.g. Lozano Family",
-                    es: "Ej. Familia Lozano",
+                    en: "Surname",
+                    es: "Apellido",
                   })}
                 />
               </div>
@@ -664,17 +549,20 @@ export function AddWardBusinessSectionModal({
                   onChange={(e) => setFields((f) => ({ ...f, familyMembers: e.target.value }))}
                   placeholder={ft(formLang, {
                     en: "e.g. Daniel, Maria Paula. Children: Lucy and Teo",
-                    es: "Ej. Daniel, Maria Paula. Hijos: Lucy y Teo",
+                    es: "Ej. Daniel, María Paula. Hijos: Lucy y Teo",
                   })}
                 />
               </div>
               <div className="sm:col-span-2 text-xs text-foreground/65">
                 {ft(formLang, {
-                  en: "Preview: Family, members",
-                  es: "Vista previa: Familia, integrantes",
+                  en: "Printed line",
+                  es: "Línea en el programa",
                 })}
                 :{" "}
-                {[fields.familyName.trim(), fields.familyMembers.trim()].filter(Boolean).join(", ")}
+                {formatNewMembersNames(
+                  fields.familyName,
+                  localizeNewMembersMembersLine(fields.familyMembers, formLang),
+                ) || "—"}
               </div>
             </div>
           ) : null}
@@ -759,26 +647,6 @@ export function AddWardBusinessSectionModal({
           ) : null}
         </div>
 
-        <div className="mt-6 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
-          <button
-            type="button"
-            className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface-hover"
-            onClick={close}
-          >
-            {ft(formLang, { en: "Cancel", es: "Cancelar" })}
-          </button>
-          <button
-            type="button"
-            disabled={!kind || (atCapacity && !editingSection)}
-            className="rounded-lg border border-border bg-foreground px-4 py-2 text-sm text-background hover:opacity-90 disabled:opacity-50"
-            onClick={() => void submit()}
-          >
-            {editingSection
-              ? ft(formLang, { en: "Save changes", es: "Guardar cambios" })
-              : ft(formLang, { en: "Add section", es: "Agregar sección" })}
-          </button>
-        </div>
-      </div>
-    </div>
+    </AppModal>
   );
 }

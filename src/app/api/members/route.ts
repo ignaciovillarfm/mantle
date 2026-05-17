@@ -60,24 +60,6 @@ export async function POST(req: Request) {
   }
 
   const supabase = await createClient();
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "add-member-calling-debug-1",
-      hypothesisId: "H2",
-      location: "api/members/route.ts:validatedInput",
-      message: "Validated member create request",
-      data: {
-        wardId,
-        hasCallingPositionId: Boolean(callingPositionIdIn),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
 
   let organizationId = organizationIdIn;
@@ -149,50 +131,10 @@ export async function POST(req: Request) {
       status: "Set Apart",
     });
 
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "add-member-calling-debug-1",
-        hypothesisId: "H3",
-        location: "api/members/route.ts:createCalling",
-        message: "Optional calling create result",
-        data: {
-          memberId: inserted?.id as string,
-          callingPositionId: callingPositionIdIn,
-          success: !callErr,
-          hasError: Boolean(callErr),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-
     if (callErr) {
       return NextResponse.json({ ok: false, error: callErr.message }, { status: 400 });
     }
   }
-
-  // #region agent log
-  fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-    body: JSON.stringify({
-      sessionId: "812a29",
-      runId: "add-member-calling-debug-1",
-      hypothesisId: "H4",
-      location: "api/members/route.ts:response",
-      message: "Returning success from member create",
-      data: {
-        memberId: inserted?.id as string,
-        withCalling: Boolean(callingPositionIdIn),
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
 
   revalidatePath("/members");
   return NextResponse.json({ ok: true, id: inserted?.id as string });

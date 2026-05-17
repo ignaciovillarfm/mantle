@@ -11,7 +11,7 @@ export function AddMemberForm({
 }: {
   wardId: string;
   callingOptions: { id: string; title: string }[];
-  onSuccess?: () => void;
+  onSuccess?: (member: { id: string; name: string }) => void;
 }) {
   const router = useRouter();
   const [firstName, setFirstName] = useState("");
@@ -23,25 +23,6 @@ export function AddMemberForm({
   const groupedCallingOptions = useMemo(() => groupCallingOptions(callingOptions), [callingOptions]);
 
   useEffect(() => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-      body: JSON.stringify({
-        sessionId: "812a29",
-        runId: "member-calling-grouping-debug-1",
-        hypothesisId: "H1",
-        location: "AddMemberForm.tsx:groupedCallingOptions",
-        message: "Computed grouped calling options for member modal",
-        data: {
-          wardId,
-          groupCount: groupedCallingOptions.length,
-          groups: groupedCallingOptions.map((g) => ({ key: g.key, count: g.options.length })),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
   }, [groupedCallingOptions, wardId]);
 
   const submit = useCallback(
@@ -54,24 +35,6 @@ export function AddMemberForm({
         setError("Enter first and last name.");
         return;
       }
-      // #region agent log
-      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "812a29" },
-        body: JSON.stringify({
-          sessionId: "812a29",
-          runId: "add-member-calling-debug-1",
-          hypothesisId: "H1",
-          location: "AddMemberForm.tsx:submit:beforeRequest",
-          message: "Submitting member create with optional calling",
-          data: {
-            wardId,
-            hasCallingSelection: Boolean(callingPositionId),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setBusy(true);
       try {
         const res = await fetch("/api/members", {
@@ -86,17 +49,18 @@ export function AddMemberForm({
             callingPositionId: callingPositionId || null,
           }),
         });
-        const json = (await res.json()) as { ok: boolean; error?: string };
+        const json = (await res.json()) as { ok: boolean; error?: string; id?: string };
         if (!res.ok || !json.ok) {
           setError(typeof json.error === "string" ? json.error : `Save failed (${res.status})`);
           return;
         }
+        const created = { id: json.id as string, name: `${fn} ${ln}` };
         setFirstName("");
         setLastName("");
         setIsYouth(false);
         setCallingPositionId("");
         router.refresh();
-        onSuccess?.();
+        onSuccess?.(created);
       } finally {
         setBusy(false);
       }

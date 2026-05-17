@@ -1,5 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
-import { normalizeSpeakerSlots, type SacramentProgramBody, type SpeakerSlot } from "@/lib/sacramentProgram";
+import {
+  isGuestSpeakerSlot,
+  normalizeSpeakerSlots,
+  type SacramentProgramBody,
+  type SpeakerSlot,
+} from "@/lib/sacramentProgram";
 import { syncSustainingCallingsFromProgram } from "@/lib/sacrament/syncSustainingCallingsFromProgram";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
 import { revalidatePath } from "next/cache";
@@ -75,6 +80,7 @@ export async function persistSacramentMeeting(
       ward_id: string;
       slot: string;
       member_id: string | null;
+      guest_name: string | null;
       topic: string | null;
       response_status: string;
       response_note: string | null;
@@ -82,11 +88,14 @@ export async function persistSacramentMeeting(
     }[] = [];
 
     for (const s of slots) {
+      const guestMode = isGuestSpeakerSlot(s);
+      const guestName = guestMode ? (s.guest_name?.trim() ? s.guest_name.trim() : "") : null;
       participationRows.push({
         meeting_id: meetingId,
         ward_id: input.wardId,
         slot: `discourse_${s.position}`,
-        member_id: s.member_id,
+        member_id: guestMode ? null : s.member_id,
+        guest_name: guestName,
         topic: s.topic ?? null,
         response_status: s.response_status ?? "pending",
         response_note: s.response_note ?? null,
@@ -100,6 +109,7 @@ export async function persistSacramentMeeting(
         ward_id: input.wardId,
         slot: "opening_prayer",
         member_id: input.opening_prayer_member_id,
+        guest_name: null,
         topic: null,
         response_status: input.opening_prayer_response_status ?? "pending",
         response_note: input.opening_prayer_response_note ?? null,
@@ -113,6 +123,7 @@ export async function persistSacramentMeeting(
         ward_id: input.wardId,
         slot: "closing_prayer",
         member_id: input.closing_prayer_member_id,
+        guest_name: null,
         topic: null,
         response_status: input.closing_prayer_response_status ?? "pending",
         response_note: input.closing_prayer_response_note ?? null,
