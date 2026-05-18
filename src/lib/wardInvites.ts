@@ -22,18 +22,57 @@ export function wardRoleLabel(role: string, lang: "en" | "es" = "en"): string {
 export type AcceptInvitesResult = {
   createdProfile: boolean;
   acceptedCount: number;
+  /** True when the user has at least one row in `user_roles` after this run. */
+  hasWardAccess: boolean;
 };
 
-/** Fulfill pending invites for this email (service role). Idempotent per invite. */
+export async function userHasWardAccess(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  const { count, error } = await admin
+    .from("user_roles")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+/**
+ * Fulfill pending invites for this email (service role).
+ * Does not create a profile unless there is a matching pending invite or existing ward access.
+ */
 export async function acceptPendingWardInvites(
   admin: SupabaseClient,
   userId: string,
   rawEmail: string | null | undefined,
 ): Promise<AcceptInvitesResult> {
   const email = rawEmail ? normalizeInviteEmail(rawEmail) : "";
-  if (!email) return { createdProfile: false, acceptedCount: 0 };
+  if (!email) {
+    return { createdProfile: false, acceptedCount: 0, hasWardAccess: false };
+  }
+
+  if (await userHasWardAccess(admin, userId)) {
+    return {
+      createdProfile: false,
+      acceptedCount: 0,
+      hasWardAccess: true,
+    };
+  }
 
   const now = new Date().toISOString();
+
+  const { data: invites, error: invErr } = await admin
+    .from("ward_invites")
+    .select("id, ward_id, role, email")
+    .eq("status", "pending")
+    .gt("expires_at", now)
+    .eq("email", email);
+  if (invErr) throw invErr;
+
+  if (!invites?.length) {
+    return { createdProfile: false, acceptedCount: 0, hasWardAccess: false };
+  }
 
   const { data: profile } = await admin
     .from("profiles")
@@ -52,16 +91,8 @@ export async function acceptPendingWardInvites(
     createdProfile = true;
   }
 
-  const { data: invites, error: invErr } = await admin
-    .from("ward_invites")
-    .select("id, ward_id, role, email")
-    .eq("status", "pending")
-    .gt("expires_at", now)
-    .eq("email", email);
-  if (invErr) throw invErr;
-
   let acceptedCount = 0;
-  for (const inv of invites ?? []) {
+  for (const inv of invites) {
     const { data: existingRoles } = await admin
       .from("user_roles")
       .select("id")
@@ -104,5 +135,12 @@ export async function acceptPendingWardInvites(
     acceptedCount += 1;
   }
 
-  return { createdProfile, acceptedCount };
+  const hasWardAccess = await userHasWardAccess(admin, userId);
+
+  if (createdProfile && !hasWardAccess) {
+    await admin.from("profiles").delete().eq("id", userId);
+    createdProfile = false;
+  }
+
+  return { createdProfile, acceptedCount, hasWardAccess };
 }

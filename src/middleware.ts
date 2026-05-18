@@ -1,3 +1,4 @@
+import { fetchUserHasWardAccess } from "@/lib/wardAccess";
 import { type NextRequest, NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
@@ -114,9 +115,21 @@ export async function middleware(request: NextRequest) {
       response.cookies.delete(SESSION_COOKIE);
       return NextResponse.redirect(new URL("/login?error=session_stale", request.url));
     }
+
+    const hasWardAccess = await fetchUserHasWardAccess(supabase, user.id);
+    if (!hasWardAccess) {
+      await supabase.auth.signOut();
+      response.cookies.delete(SESSION_COOKIE);
+      return NextResponse.redirect(new URL("/login?error=no_ward_access", request.url));
+    }
   }
 
-  if (user && isAuthRoute && request.nextUrl.pathname === "/login") {
+  if (
+    user &&
+    isAuthRoute &&
+    request.nextUrl.pathname === "/login" &&
+    request.nextUrl.searchParams.get("signed_out") !== "1"
+  ) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

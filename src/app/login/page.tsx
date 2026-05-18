@@ -28,14 +28,18 @@ function LoginInner() {
       <h1 className="text-2xl font-semibold">Sign in</h1>
       {err && (
         <p className="max-w-md rounded-lg border border-warning/40 bg-warning/10 px-4 py-2 text-center text-sm text-warning">
-          {err === "not_whitelisted" &&
-            "Your account is not authorized yet. Ask your ward for an invite, then sign in with the same Google email they used."}
+          {searchParams.get("signed_out") === "1" && !err && (
+            <span className="text-foreground/80">You have been signed out.</span>
+          )}
+          {(err === "not_whitelisted" || err === "no_ward_access") &&
+            "You need an active ward invite to sign in. Ask your ward leadership to invite you, then use the same Google email address on the invite."}
           {err === "session_stale" && "Your session was ended. Please sign in again."}
           {err === "no_code" && "Missing OAuth code. Try again."}
           {err === "config" && "Server is missing Supabase configuration."}
           {err === "oauth" && "Sign-in failed unexpectedly. Try again, or check server logs."}
-          {!["not_whitelisted", "session_stale", "no_code", "config", "oauth"].includes(err) &&
-            `Error: ${err}`}
+          {!["not_whitelisted", "no_ward_access", "session_stale", "no_code", "config", "oauth"].includes(
+              err,
+            ) && `Error: ${err}`}
         </p>
       )}
       <button
