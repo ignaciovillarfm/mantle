@@ -6,21 +6,26 @@ import {
   formatLocalISODate,
   formatSacramentMeetingDateLong,
   parseAnnouncementRows,
-  newMembersDisplayValues,
   sacramentPrintDocumentTitle,
-  splitNewMembersTemplateBody,
   SACRAMENT_HYMN_INTRO,
   SACRAMENT_PRIESTHOOD_INSTRUCTION,
   SACRAMENT_REVERENCE_NOTE,
   startOfWeekSundayFromISO,
   upcomingSacramentSunday,
-  wardBusinessSectionDisplayOrder,
-  wardBusinessSectionDefaultTitle,
+  hasAssignedDiscourses,
+  sacramentMeetingKindNotice,
+  sacramentMeetingKindSectionTitle,
+  sacramentMeetingProgramKind,
+  shouldMoveWardBusinessToPrintBack,
+  type SacramentProgramBody,
+  sortWardBusinessSectionsForPrint,
   type SacramentFormLang,
 } from "@/lib/sacramentProgram";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import { formatTestimonyMessageLines } from "@/lib/sacramentTestimonyMessages";
+import { FixedRowsTable, WardBusinessPrintBody } from "./printPrimitives";
 
 function t(lang: SacramentFormLang, en: string, es: string): string {
   return lang === "es" ? es : en;
@@ -160,57 +165,6 @@ function PrintLabelPairRow({
   );
 }
 
-function TwoColumnTable({ rows }: { rows: { left: string; right: string }[] }) {
-  if (rows.length === 0) return null;
-  return (
-    <table className="w-full border border-black border-collapse text-[13px]">
-      <tbody>
-        {rows.map((row, i) => (
-          <tr key={`nm-${i}`}>
-            <td className="border border-black px-2.5 py-1">{row.left || "\u00A0"}</td>
-            <td className="border border-black px-2.5 py-1">{row.right || "\u00A0"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function FixedRowsTable({
-  rows,
-  showIndex = false,
-  rightLabel,
-}: {
-  rows: string[];
-  showIndex?: boolean;
-  rightLabel?: string;
-}) {
-  return (
-    <table className="w-full border border-black border-collapse text-[13px]">
-      <tbody>
-        {rows.map((row, i) => (
-          <tr key={`r-${i}`}>
-            {showIndex ? <td className="w-8 border border-black px-1 text-center">{i + 1}</td> : null}
-            <td className="border border-black px-2.5 py-1">{row || "\u00A0"}</td>
-            {rightLabel ? <td className="w-10 border border-black px-1 text-center">{rightLabel}</td> : null}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function sectionTemplateText(
-  templateKey: string | undefined,
-  templates: Record<string, { en?: string; es?: string }>,
-  lang: SacramentFormLang,
-): string {
-  if (!templateKey) return "";
-  const row = templates[templateKey];
-  if (!row) return "";
-  return (lang === "es" ? row.es : row.en) ?? "";
-}
-
 export default async function SacramentPrintPage({
   searchParams,
 }: {
@@ -242,10 +196,37 @@ export default async function SacramentPrintPage({
     lang === "es" ? `Reunión sacramental del barrio ${wardName}` : `Sacrament meeting program for ${wardName}`;
   const printTitleLine2 = formattedDate;
   const printableSpeakers = (state.speakers ?? []).filter((s) => s.fulfilled !== false);
+  const meetingProgramKind = sacramentMeetingProgramKind(meetingDate);
+  const showDiscourseSlots = hasAssignedDiscourses(meetingProgramKind);
+  const testimonyMessageLines =
+    meetingProgramKind === "testimony" && program
+      ? formatTestimonyMessageLines(program as SacramentProgramBody, lang)
+      : null;
   const sacramentHymnIntro = lang === "es" ? SACRAMENT_HYMN_INTRO.es : SACRAMENT_HYMN_INTRO.en;
   const reverenceNote = lang === "es" ? SACRAMENT_REVERENCE_NOTE.es : SACRAMENT_REVERENCE_NOTE.en;
   const priesthoodInstruction =
     lang === "es" ? SACRAMENT_PRIESTHOOD_INSTRUCTION.es : SACRAMENT_PRIESTHOOD_INSTRUCTION.en;
+  const wardBusinessSections = sortWardBusinessSectionsForPrint(program?.wardBusinessSections ?? []);
+  const wardBusinessOnBackPage = shouldMoveWardBusinessToPrintBack(program?.wardBusinessSections);
+
+  const wardBusinessHeading = (
+    <h2 className="mb-1 text-[15px] font-semibold uppercase tracking-wide">
+      {t(lang, "Ward Business", "Asuntos del barrio")}
+    </h2>
+  );
+
+  const wardBusinessContent = (
+    <>
+      {wardBusinessHeading}
+      <WardBusinessPrintBody
+        sections={wardBusinessSections}
+        lang={lang}
+        sectionTemplates={state.sectionTemplates}
+        memberNameById={memberNameById}
+        callingById={callingById}
+      />
+    </>
+  );
 
   return (
     <main className="mx-auto max-w-[860px] bg-white px-6 py-6 text-black print:max-w-none print:px-4 print:py-3">
@@ -256,6 +237,10 @@ export default async function SacramentPrintPage({
           .no-print { display: none !important; }
           .print-tight * { line-height: 1.15; }
           .print-pause-divider { opacity: 0.45 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .print-page-back {
+            break-before: page;
+            page-break-before: always;
+          }
           body * { visibility: hidden !important; }
           main, main * { visibility: visible !important; }
           main {
@@ -265,6 +250,19 @@ export default async function SacramentPrintPage({
             width: 100% !important;
             margin: 0 !important;
           }
+        }
+        .print-page-back {
+          margin-top: 2rem;
+          padding-top: 1.25rem;
+          border-top: 2px dashed #bbb;
+        }
+        .print-page-label {
+          margin-bottom: 0.75rem;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #666;
         }
       `}</style>
       <div className="no-print mb-4 flex items-center justify-end">
@@ -280,7 +278,7 @@ export default async function SacramentPrintPage({
           <p className="mt-1 text-[15px] font-medium leading-snug">{printTitleLine2}</p>
         </header>
 
-        <div className="flex flex-col gap-2">
+        <div className="print-page-front flex flex-col gap-2">
         <PrintSectionBox>
         <div className="space-y-1.5">
           <PrintLabelLine
@@ -330,144 +328,27 @@ export default async function SacramentPrintPage({
         <PauseDivider lang={lang} />
 
         <PrintSectionBox>
-        {(program?.wardBusinessSections ?? []).length > 0 ? (
-          <div>
-            <h2 className="mb-1 text-[15px] font-semibold uppercase tracking-wide">
-              {t(lang, "Ward Business", "Asuntos del barrio")}
-            </h2>
-            <div className="space-y-3">
-              {(program?.wardBusinessSections ?? []).map((sec, idx) => ({ sec, idx })).sort((a, b) => {
-                const orderDelta = wardBusinessSectionDisplayOrder(a.sec) - wardBusinessSectionDisplayOrder(b.sec);
-                if (orderDelta !== 0) return orderDelta;
-                return a.idx - b.idx;
-              }).map(({ sec }) => {
-                const templateText =
-                  sec.kind === "aaron_priesthood_ordination"
-                    ? ""
-                    : sectionTemplateText(sec.templateKey, state.sectionTemplates, lang);
-                const commonText =
-                  sec.kind === "new_members" ? templateText : templateText || sec.body || "";
-                const deaconText = sectionTemplateText("ward.ordination.deacon", state.sectionTemplates, lang);
-                const tpText = sectionTemplateText("ward.ordination.teacher_priest", state.sectionTemplates, lang);
-                const newMembersTemplate =
-                  sec.kind === "new_members"
-                    ? splitNewMembersTemplateBody(templateText)
-                    : { before: "", after: "" };
-                const newMembersParsed =
-                  sec.kind === "new_members" ? newMembersDisplayValues(sec, lang) : null;
-                const releaseRows =
-                  sec.kind === "releases"
-                    ? (() => {
-                        const byMember = new Map<string, string[]>();
-                        const memberOrder: string[] = [];
-                        for (const e of sec.releaseEntries ?? []) {
-                          const mid = e.memberId ?? "";
-                          const calling = callingById.get(e.callingPositionId) ?? "—";
-                          if (!byMember.has(mid)) {
-                            byMember.set(mid, []);
-                            memberOrder.push(mid);
-                          }
-                          const list = byMember.get(mid)!;
-                          if (!list.includes(calling)) list.push(calling);
-                        }
-                        const rows = memberOrder.map((mid) => {
-                          const name = memberNameById.get(mid) ?? "—";
-                          const callings = (byMember.get(mid) ?? []).join(" y ");
-                          return `${name} - ${callings}`;
-                        });
-                        return rows;
-                      })()
-                    : [];
-                return (
-                  <div key={sec.id} className="space-y-1.5">
-                    <p className="font-semibold">{wardBusinessSectionDefaultTitle(sec.kind, lang)}</p>
-                    {sec.kind === "new_members" ? (
-                      <div className="space-y-1.5">
-                        {newMembersTemplate.before ? (
-                          <p className="leading-relaxed whitespace-pre-wrap">{newMembersTemplate.before}</p>
-                        ) : null}
-                        <TwoColumnTable
-                          rows={[
-                            {
-                              left: newMembersParsed?.familyName ?? "",
-                              right: newMembersParsed?.familyMembers ?? "",
-                            },
-                          ]}
-                        />
-                        {newMembersTemplate.after ? (
-                          <p className="leading-relaxed whitespace-pre-wrap">{newMembersTemplate.after}</p>
-                        ) : null}
-                      </div>
-                    ) : commonText ? (
-                      <p className="leading-relaxed whitespace-pre-wrap">{commonText}</p>
-                    ) : null}
-                    {sec.kind === "releases" && releaseRows.length > 0 ? (
-                      <div className="mt-1">
-                        <FixedRowsTable rows={releaseRows} />
-                      </div>
-                    ) : null}
-                    {sec.kind === "sustainings" && (sec.sustainingEntries ?? []).length > 0 ? (
-                      <div className="mt-1">
-                        <FixedRowsTable
-                        rows={(() => {
-                          const byMember = new Map<string, string[]>();
-                          const memberOrder: string[] = [];
-                          for (const e of sec.sustainingEntries ?? []) {
-                            const mid = e.memberId ?? "";
-                            const calling = callingById.get(e.callingPositionId) ?? "—";
-                            if (!byMember.has(mid)) {
-                              byMember.set(mid, []);
-                              memberOrder.push(mid);
-                            }
-                            const list = byMember.get(mid)!;
-                            if (!list.includes(calling)) list.push(calling);
-                          }
-                          return memberOrder.map((mid) => {
-                            const name = memberNameById.get(mid) ?? "—";
-                            const callings = (byMember.get(mid) ?? []).join(" y ");
-                            return `${name} - ${callings}`;
-                          });
-                        })()}
-                      />
-                      </div>
-                    ) : null}
-                    {sec.kind === "aaron_priesthood_ordination" && (sec.ordinationEntries ?? []).length > 0 ? (
-                      <div className="space-y-2">
-                        {(sec.ordinationEntries ?? []).some((o) => o.office === "deacon") ? (
-                          <>
-                            <p className="leading-relaxed whitespace-pre-wrap">{deaconText}</p>
-                            <FixedRowsTable
-                              rows={(sec.ordinationEntries ?? [])
-                                .filter((o) => o.office === "deacon")
-                                .map((o) => memberNameById.get(o.memberId) ?? "—")}
-                            />
-                          </>
-                        ) : null}
-                        {(sec.ordinationEntries ?? []).some((o) => o.office === "teacher" || o.office === "priest") ? (
-                          <>
-                            <p className="leading-relaxed whitespace-pre-wrap">{tpText}</p>
-                            <FixedRowsTable
-                              rows={(sec.ordinationEntries ?? [])
-                                .filter((o) => o.office === "teacher" || o.office === "priest")
-                                .map(
-                                  (o) =>
-                                    `${memberNameById.get(o.memberId) ?? "—"} (${t(
-                                      lang,
-                                      o.office === "teacher" ? "Teacher" : "Priest",
-                                      o.office === "teacher" ? "Maestro" : "Presbítero",
-                                    )})`,
-                                )}
-                            />
-                          </>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+        {wardBusinessOnBackPage ? (
+            <div className="pb-2">
+              {wardBusinessHeading}
+              <p className="text-[13px] leading-snug text-neutral-800">
+                {t(
+                  lang,
+                  "Ward business is printed on the reverse side of this page.",
+                  "Los asuntos del barrio se imprimen al reverso de esta hoja.",
+                )}
+              </p>
             </div>
+        ) : wardBusinessSections.length > 0 ? (
+          wardBusinessContent
+        ) : (
+          <div className="pb-2">
+            {wardBusinessHeading}
+            <p className="text-[13px] leading-snug text-neutral-800">
+              {t(lang, "No ward business today.", "No hay asuntos hoy.")}
+            </p>
           </div>
-        ) : null}
+        )}
 
         <div className="pt-2">
           <PrintLabelValueCell
@@ -497,29 +378,64 @@ export default async function SacramentPrintPage({
             <p>{priesthoodInstruction}</p>
           </div>
           <div className="space-y-2">
-            <div className="font-semibold">{t(lang, "Speakers", "Discursos")}</div>
-            <FixedRowsTable
-              rows={printableSpeakers.map((s) => {
-                const name =
-                  s.guest_name?.trim() ||
-                  memberNameById.get(s.member_id ?? "") ||
-                  "—";
-                return name + (s.topic ? ` - ${s.topic}` : "");
-              })}
-            />
-          </div>
-          <div className="space-y-2 pt-2">
-            <h2 className="text-[15px] font-semibold uppercase tracking-wide">{t(lang, "Closing", "Cierre")}</h2>
-            <PrintLabelPairRow
-              leftLabel={t(lang, "Closing Hymn", "Último himno")}
-              leftValue={program?.closingHymn ?? ""}
-              rightLabel={t(lang, "Closing Prayer", "Última oración")}
-              rightValue={memberNameById.get(meeting?.closing_prayer_member_id ?? "") ?? ""}
-            />
+            <h2 className="text-[15px] font-semibold uppercase tracking-wide">
+              {sacramentMeetingKindSectionTitle(meetingProgramKind, lang)}
+            </h2>
+            {showDiscourseSlots ? (
+              <FixedRowsTable
+                rows={printableSpeakers.map((s) => {
+                  const name =
+                    s.guest_name?.trim() ||
+                    memberNameById.get(s.member_id ?? "") ||
+                    "—";
+                  return name + (s.topic ? ` - ${s.topic}` : "");
+                })}
+              />
+            ) : (
+              <div className="space-y-2">
+                <p className="text-[13px] leading-snug">
+                  {sacramentMeetingKindNotice(meetingProgramKind, lang)}
+                </p>
+                {testimonyMessageLines ? (
+                  <div className="border-t border-border/60 pt-2 text-[13px] leading-snug">
+                    {testimonyMessageLines.attribution ? (
+                      <p className="font-medium">{testimonyMessageLines.attribution}</p>
+                    ) : null}
+                    <p className={testimonyMessageLines.attribution ? "italic" : ""}>
+                      “{testimonyMessageLines.quote}”
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
         </PrintSectionBox>
+        <PauseDivider lang={lang} />
+
+        <PrintSectionBox>
+        <div className="space-y-2 text-[14px] leading-snug">
+          <h2 className="text-[15px] font-semibold uppercase tracking-wide">{t(lang, "Closing", "Cierre")}</h2>
+          <PrintLabelLine
+            label={t(lang, "Closing Hymn", "Último himno")}
+            value={program?.closingHymn ?? ""}
+          />
+          <PrintLabelLine
+            label={t(lang, "Closing Prayer", "Última oración")}
+            value={memberNameById.get(meeting?.closing_prayer_member_id ?? "") ?? ""}
+          />
         </div>
+        </PrintSectionBox>
+        </div>
+
+        {wardBusinessOnBackPage && wardBusinessSections.length > 0 ? (
+          <div className="print-page-back">
+            <p className="print-page-label no-print">
+              {t(lang, "Page 2 (back)", "Página 2 (reverso)")}
+            </p>
+            <PrintSectionBox>{wardBusinessContent}</PrintSectionBox>
+          </div>
+        ) : null}
       </section>
     </main>
   );

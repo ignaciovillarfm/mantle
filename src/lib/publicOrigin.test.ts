@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { getPublicOrigin, safeInternalPath } from "./publicOrigin";
+import { getPublicOrigin, getShareableSiteOrigin, safeInternalPath } from "./publicOrigin";
 import type { NextRequest } from "next/server";
 
 function mockRequest(url: string): NextRequest {
@@ -44,6 +44,27 @@ describe("getPublicOrigin", () => {
     expect(getPublicOrigin(mockRequest("https://fallback.example/x"))).toBe(
       "https://fallback.example",
     );
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("getShareableSiteOrigin", () => {
+  it("prefers SITE_URL over request host and NEXT_PUBLIC", () => {
+    vi.stubEnv("SITE_URL", "https://mantle-jade.vercel.app");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "http://localhost:3000");
+    const h = new Headers({ host: "localhost:3000" });
+    expect(getShareableSiteOrigin(h)).toBe("https://mantle-jade.vercel.app");
+    vi.unstubAllEnvs();
+  });
+
+  it("uses forwarded host when SITE_URL unset", () => {
+    vi.stubEnv("SITE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+    const h = new Headers({
+      "x-forwarded-host": "mantle-jade.vercel.app",
+      "x-forwarded-proto": "https",
+    });
+    expect(getShareableSiteOrigin(h)).toBe("https://mantle-jade.vercel.app");
     vi.unstubAllEnvs();
   });
 });

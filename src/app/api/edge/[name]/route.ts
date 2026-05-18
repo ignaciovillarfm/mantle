@@ -8,6 +8,9 @@ const ROUTES: Record<string, { methods: ("GET" | "POST")[] }> = {
   "bishop-note-create": { methods: ["POST"] },
   "bishop-note-read": { methods: ["GET"] },
   "admin-offboard-user": { methods: ["POST"] },
+  "ward-invite-create": { methods: ["POST"] },
+  "ward-invite-list": { methods: ["GET", "POST"] },
+  "ward-invite-revoke": { methods: ["POST"] },
 };
 
 export async function GET(

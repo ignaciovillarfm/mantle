@@ -24,14 +24,27 @@ function FieldLabel({ lang, en, es }: { lang: SacramentFormLang; en: string; es:
   return <span className="mb-1 block font-medium text-foreground">{t(lang, en, es)}</span>;
 }
 
-function deliveryRecorded(slot: SpeakerSlot) {
-  return slot.fulfilled === true || slot.fulfilled === false;
+function PencilIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+    </svg>
+  );
 }
 
-function responseSummary(lang: SacramentFormLang, status: TalkResponseStatus | undefined) {
-  if (status === "accepted") return t(lang, "Accepted", "Aceptó");
-  if (status === "declined") return t(lang, "Declined", "Declinó");
-  return t(lang, "Pending", "Pendiente");
+function deliveryRecorded(slot: SpeakerSlot) {
+  return slot.fulfilled === true || slot.fulfilled === false;
 }
 
 function speakerLabel(slot: SpeakerSlot, memberName: string | null, lang: SacramentFormLang) {
@@ -89,13 +102,14 @@ export function SpeakerSlotCard({
     });
   };
 
+  const slotLabelEn = `Speaker ${slot.position}`;
+  const slotLabelEs = `Discurso ${slot.position}`;
+
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="text-xs font-medium text-foreground/55">
-          {t(lang, `Speaker ${slot.position}`, `Discurso ${slot.position}`)}
-        </p>
-        {canRemove ? (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="font-medium text-foreground">{t(lang, slotLabelEn, slotLabelEs)}</span>
+        {canRemove && !showCompact ? (
           <button
             type="button"
             className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-surface-hover"
@@ -108,56 +122,42 @@ export function SpeakerSlotCard({
 
       {showCompact ? (
         <div
-          className={`mt-2 rounded-lg border px-3 py-2.5 ${
+          className={`group rounded-lg border px-3 py-2.5 ${
             slot.fulfilled
               ? "border-green-500/25 bg-green-500/5"
               : "border-amber-500/25 bg-amber-500/5"
           }`}
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-foreground">
-                {speakerLabel(slot, memberName, lang)}
-              </p>
-              {guestMode ? (
-                <p className="mt-0.5 text-xs text-foreground/50">
-                  {t(lang, "Guest / stake speaker", "Invitado / estaca")}
-                </p>
-              ) : null}
-              {slot.topic?.trim() ? (
-                <p className="mt-0.5 truncate text-sm text-foreground/60">
-                  {t(lang, "Topic", "Tema")}: {slot.topic.trim()}
-                </p>
-              ) : null}
-              {!guestMode ? (
-                <p className="mt-1 text-xs text-foreground/50">
-                  {t(lang, "Response", "Respuesta")}: {responseSummary(lang, slot.response_status)}
-                  {slot.response_note?.trim() ? ` · ${slot.response_note.trim()}` : null}
-                </p>
-              ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+              {speakerLabel(slot, memberName, lang)}
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/80 text-foreground/70 opacity-0 transition-opacity hover:bg-surface-hover hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+                onClick={() => setExpanded(true)}
+                aria-label={t(lang, "Edit", "Editar")}
+                title={t(lang, "Edit", "Editar")}
+              >
+                <PencilIcon />
+              </button>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  slot.fulfilled
+                    ? "bg-green-600/15 text-green-800 dark:text-green-300"
+                    : "bg-amber-600/15 text-amber-900 dark:text-amber-200"
+                }`}
+              >
+                {slot.fulfilled
+                  ? t(lang, "Spoke", "Discursó")
+                  : t(lang, "Did not speak", "No discursó")}
+              </span>
             </div>
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                slot.fulfilled
-                  ? "bg-green-600/15 text-green-800 dark:text-green-300"
-                  : "bg-amber-600/15 text-amber-900 dark:text-amber-200"
-              }`}
-            >
-              {slot.fulfilled
-                ? t(lang, "Spoke", "Discursó")
-                : t(lang, "Did not speak", "No discursó")}
-            </span>
           </div>
-          <button
-            type="button"
-            className="mt-2 text-xs font-medium text-foreground/55 underline-offset-2 hover:text-foreground hover:underline"
-            onClick={() => setExpanded(true)}
-          >
-            {t(lang, "Edit", "Editar")}
-          </button>
         </div>
       ) : (
-        <div className="mt-3 space-y-3">
+        <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               {guestMode ? (

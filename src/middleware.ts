@@ -62,11 +62,13 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/api/members") ||
     request.nextUrl.pathname.startsWith("/api/callings") ||
     request.nextUrl.pathname.startsWith("/api/sacrament") ||
+    request.nextUrl.pathname.startsWith("/api/ward-invites") ||
     request.nextUrl.pathname.startsWith("/sacrament") ||
     request.nextUrl.pathname.startsWith("/callings") ||
     request.nextUrl.pathname.startsWith("/recommends") ||
     request.nextUrl.pathname.startsWith("/admin") ||
-    request.nextUrl.pathname.startsWith("/bishop-notes");
+    request.nextUrl.pathname.startsWith("/bishop-notes") ||
+    request.nextUrl.pathname.startsWith("/settings");
 
   if (isProtected && !user) {
     const redirect = new URL("/login", request.url);

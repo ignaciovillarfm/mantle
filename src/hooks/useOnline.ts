@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from "react";
 
-export function useOnline() {
-  const [online, setOnline] = useState<boolean | null>(null);
+/** Starts `true` so SSR and first client paint match; updates after mount. */
+export function useOnline(): boolean {
+  const [online, setOnline] = useState(true);
 
   useEffect(() => {
-    const on = () => setOnline(navigator.onLine);
-    on();
-    window.addEventListener("online", on);
-    window.addEventListener("offline", on);
+    const sync = () => setOnline(navigator.onLine);
+    sync();
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
     return () => {
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", on);
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
     };
   }, []);
 

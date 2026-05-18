@@ -5,9 +5,23 @@ import type {
 } from "@/app/(ward)/sacrament/loadSacramentState";
 import {
   normalizeSpeakerSlots,
+  sacramentMeetingProgramKind,
   type SacramentProgramBody,
   type SpeakerSlot,
 } from "@/lib/sacramentProgram";
+import type { TestimonyMessageUsage } from "@/lib/sacramentTestimonyMessages";
+
+function testimonyUsageAfterSave(
+  prev: TestimonyMessageUsage[],
+  date: string,
+  program: SacramentProgramBody,
+): TestimonyMessageUsage[] {
+  if (sacramentMeetingProgramKind(date) !== "testimony") return prev;
+  const id = program.testimonyMessageId.trim();
+  if (!id) return prev.filter((u) => u.date !== date);
+  const rest = prev.filter((u) => u.date !== date);
+  return [{ id, date }, ...rest];
+}
 
 /** Builds the page bundle we expect after a successful persist (immediate cache update). */
 export function mergeSacramentBundleAfterSave(
@@ -60,5 +74,10 @@ export function mergeSacramentBundleAfterSave(
     meeting,
     speakers,
     previous: prev.previous,
+    testimonyMessageUsage: testimonyUsageAfterSave(
+      prev.testimonyMessageUsage,
+      input.date,
+      input.program,
+    ),
   };
 }

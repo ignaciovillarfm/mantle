@@ -1,7 +1,9 @@
 "use client";
 
 import { AddWardBusinessSectionModal } from "./AddWardBusinessSectionModal";
+import { PrayerAssignmentCard } from "./PrayerAssignmentCard";
 import { SpeakerSlotCard } from "./SpeakerSlotCard";
+import { TestimonyMessageEditor } from "./TestimonyMessageEditor";
 import type { ApplyPreviousDraft } from "./applyPreviousWeekDraft";
 import type { SacramentPageBundle } from "./loadSacramentState";
 import {
@@ -17,6 +19,10 @@ import {
   parseTalkResponseStatus,
   splitNewMembersTemplateBody,
   serializeAnnouncementRows,
+  hasAssignedDiscourses,
+  sacramentMeetingKindNotice,
+  sacramentMeetingKindSectionTitle,
+  sacramentMeetingProgramKind,
   sacramentSundayLongLabel,
   shiftCalendarWeek,
   startOfWeekSundayFromISO,
@@ -43,13 +49,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 const SACRAMENT_LANG_STORAGE_KEY = "mantle-sacrament-form-lang";
 const AUTO_SAVE_DEBOUNCE_MS = 1600;
-
-/** Single-line row height matching selects; extra right inset for native dropdown chevron */
-const SACRAMENT_SELECT_ROW_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background py-0 pl-3 pr-10 text-sm leading-10 text-foreground disabled:opacity-50";
-/** Short notes beside assignment dropdowns — same visual height as selects */
-const SACRAMENT_ASSIGNMENT_NOTE_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none disabled:opacity-50";
 
 function serializeSacramentDraft(input: {
   program: SacramentProgramBody;
@@ -404,6 +403,11 @@ export function SacramentClient({
 
   const prevWeekFromUrl = useMemo(() => shiftCalendarWeek(effectiveMeetingDate, -1), [effectiveMeetingDate]);
   const nextWeekFromUrl = useMemo(() => shiftCalendarWeek(effectiveMeetingDate, 1), [effectiveMeetingDate]);
+  const meetingProgramKind = useMemo(
+    () => sacramentMeetingProgramKind(effectiveMeetingDate),
+    [effectiveMeetingDate],
+  );
+  const showDiscourseSlots = hasAssignedDiscourses(meetingProgramKind);
 
   const sacramentHref = useCallback(
     (date: string) => {
@@ -835,6 +839,14 @@ export function SacramentClient({
   const updateProgram = (key: keyof SacramentProgramBody, value: string) => {
     setProgram((p) => ({ ...p, [key]: value }));
   };
+
+  const updateTestimonyMessage = useCallback((id: string, custom: string) => {
+    setProgram((p) => ({
+      ...p,
+      testimonyMessageId: id,
+      testimonyMessageCustom: custom,
+    }));
+  }, []);
 
   const appendWardBusinessSection = useCallback(
     (section: {
@@ -1317,7 +1329,7 @@ export function SacramentClient({
                   />
                 </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-4">
                 <div>
                   <FieldLabel lang={formLang} en="Opening hymn" es="Primer himno" />
                   <HymnInput
@@ -1327,80 +1339,20 @@ export function SacramentClient({
                     placeholder={formT(formLang, { en: "Hymn name", es: "Nombre del himno" })}
                   />
                 </div>
-                <div>
-                  <FieldLabel lang={formLang} en="Opening prayer" es="Primera oración" />
-                  <MemberSearchSelect
-                    id="openPray"
-                    lang={formLang}
-                    members={bundle.members}
-                    value={openingPrayer}
-                    onChange={(v) => {
-                      if (v !== openingPrayer) {
-                        setOpeningPrayerResponse("pending");
-                        setOpeningPrayerNote(null);
-                        setOpeningPrayerFulfilled(null);
-                      }
-                      setOpeningPrayer(v);
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="border-t border-border pt-3">
-                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">
-                  {formT(formLang, {
-                    en: "Opening prayer — assignment (Members tab)",
-                    es: "Oración inicial — asignación (Miembros)",
-                  })}
-                </p>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <FieldLabel lang={formLang} en="Response" es="Respuesta" />
-                    <select
-                      id="openPray-res"
-                      disabled={!openingPrayer}
-                      className={SACRAMENT_SELECT_ROW_CLASS}
-                      value={openingPrayerResponse}
-                      onChange={(e) => setOpeningPrayerResponse(e.target.value as TalkResponseStatus)}
-                    >
-                      <option value="pending">{formT(formLang, { en: "Pending", es: "Pendiente" })}</option>
-                      <option value="accepted">{formT(formLang, { en: "Accepted", es: "Aceptó" })}</option>
-                      <option value="declined">{formT(formLang, { en: "Declined", es: "Declinó" })}</option>
-                    </select>
-                  </div>
-                  <div>
-                    <FieldLabel
-                      lang={formLang}
-                      en="Note (e.g. reason if declined)"
-                      es="Nota (p. ej. motivo si declinó)"
-                    />
-                    <input
-                      type="text"
-                      disabled={!openingPrayer}
-                      className={SACRAMENT_ASSIGNMENT_NOTE_CLASS}
-                      value={openingPrayerNote ?? ""}
-                      onChange={(e) => setOpeningPrayerNote(e.target.value || null)}
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel lang={formLang} en="Prayed that Sunday?" es="¿Oró ese domingo?" />
-                    <select
-                      id="openPray-ful"
-                      disabled={!openingPrayer}
-                      className={SACRAMENT_SELECT_ROW_CLASS}
-                      value={
-                        openingPrayerFulfilled === true ? "yes" : openingPrayerFulfilled === false ? "no" : ""
-                      }
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setOpeningPrayerFulfilled(v === "yes" ? true : v === "no" ? false : null);
-                      }}
-                    >
-                      <option value="">{formT(formLang, { en: "Unknown", es: "Desconocido" })}</option>
-                      <option value="yes">{formT(formLang, { en: "Yes", es: "Sí" })}</option>
-                      <option value="no">{formT(formLang, { en: "No", es: "No" })}</option>
-                    </select>
-                  </div>
-                </div>
+                <PrayerAssignmentCard
+                  variant="opening"
+                  lang={formLang}
+                  members={bundle.members}
+                  memberId={openingPrayer}
+                  memberName={openingPrayer ? (memberNameById.get(openingPrayer) ?? null) : null}
+                  responseStatus={openingPrayerResponse}
+                  responseNote={openingPrayerNote}
+                  fulfilled={openingPrayerFulfilled}
+                  onMemberChange={setOpeningPrayer}
+                  onResponseChange={setOpeningPrayerResponse}
+                  onNoteChange={setOpeningPrayerNote}
+                  onFulfilledChange={setOpeningPrayerFulfilled}
+                />
               </div>
             </div>
           </section>
@@ -1744,23 +1696,22 @@ export function SacramentClient({
           </div>
 
           <section className="rounded-xl border border-border bg-surface p-4">
-            <h2 className="text-lg font-semibold">
-              {formT(formLang, { en: "Speakers and closing", es: "Discursos y cierre" })}
-            </h2>
-            <div className="mt-4 space-y-4">
-              <div className="space-y-3 rounded-lg border border-border bg-background p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-foreground/50">
-                    {formT(formLang, { en: "Speakers", es: "Discursos" })}
-                  </p>
-                  <p className="text-[11px] text-foreground/45">
-                    {formT(formLang, {
-                      en: `${displaySpeakers.length} of ${MAX_DISCOURSE_SLOTS}`,
-                      es: `${displaySpeakers.length} de ${MAX_DISCOURSE_SLOTS}`,
-                    })}
-                  </p>
-                </div>
-                {displaySpeakers.map((slot, idx) => (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold">
+                {sacramentMeetingKindSectionTitle(meetingProgramKind, formLang)}
+              </h2>
+              {showDiscourseSlots ? (
+                <p className="text-xs text-foreground/45">
+                  {formT(formLang, {
+                    en: `${displaySpeakers.length} of ${MAX_DISCOURSE_SLOTS}`,
+                    es: `${displaySpeakers.length} de ${MAX_DISCOURSE_SLOTS}`,
+                  })}
+                </p>
+              ) : null}
+            </div>
+            {showDiscourseSlots ? (
+            <div className="mt-4 space-y-3">
+              {displaySpeakers.map((slot, idx) => (
                   <SpeakerSlotCard
                     key={slot.position}
                     slot={slot}
@@ -1789,11 +1740,44 @@ export function SacramentClient({
                     {formT(formLang, { en: "Add speaker", es: "Agregar discurso" })}
                   </button>
                 ) : null}
+            </div>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <p className="text-sm text-foreground/75">
+                  {sacramentMeetingKindNotice(meetingProgramKind, formLang)}
+                </p>
+                {meetingProgramKind === "testimony" ? (
+                  <TestimonyMessageEditor
+                    lang={formLang}
+                    meetingDate={effectiveMeetingDate}
+                    messageId={program.testimonyMessageId}
+                    messageCustom={program.testimonyMessageCustom}
+                    usage={bundle?.testimonyMessageUsage ?? []}
+                    onChange={updateTestimonyMessage}
+                  />
+                ) : null}
               </div>
-              <div className="space-y-4 rounded-lg border border-border bg-background p-3">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel lang={formLang} en="Closing hymn" es="Último himno" />
+            )}
+          </section>
+
+          <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-foreground/45">
+            <div className="h-px flex-1 bg-border" />
+            <span>
+              {formT(formLang, {
+                en: "Pause",
+                es: "Pausa",
+              })}
+            </span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <section className="rounded-xl border border-border bg-surface p-4">
+            <h2 className="text-lg font-semibold">
+              {formT(formLang, { en: "Closing", es: "Cierre" })}
+            </h2>
+            <div className="mt-4 space-y-4">
+              <div>
+                <FieldLabel lang={formLang} en="Closing hymn" es="Último himno" />
                     <HymnInput
                       id="closing-hymn"
                       value={program.closingHymn}
@@ -1801,82 +1785,20 @@ export function SacramentClient({
                       placeholder={formT(formLang, { en: "Hymn name", es: "Nombre del himno" })}
                     />
                   </div>
-                  <div>
-                    <FieldLabel lang={formLang} en="Closing prayer" es="Última oración" />
-                    <MemberSearchSelect
-                      id="closePray"
-                      lang={formLang}
-                      members={bundle.members}
-                      value={closingPrayer}
-                      onChange={(v) => {
-                        if (v !== closingPrayer) {
-                          setClosingPrayerResponse("pending");
-                          setClosingPrayerNote(null);
-                          setClosingPrayerFulfilled(null);
-                        }
-                        setClosingPrayer(v);
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="border-t border-border pt-3">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">
-                    {formT(formLang, {
-                      en: "Closing prayer — assignment (Members tab)",
-                      es: "Oración final — asignación (Miembros)",
-                    })}
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div>
-                      <FieldLabel lang={formLang} en="Response" es="Respuesta" />
-                      <select
-                        id="closePray-res"
-                        disabled={!closingPrayer}
-                        className={SACRAMENT_SELECT_ROW_CLASS}
-                        value={closingPrayerResponse}
-                        onChange={(e) => setClosingPrayerResponse(e.target.value as TalkResponseStatus)}
-                      >
-                        <option value="pending">{formT(formLang, { en: "Pending", es: "Pendiente" })}</option>
-                        <option value="accepted">{formT(formLang, { en: "Accepted", es: "Aceptó" })}</option>
-                        <option value="declined">{formT(formLang, { en: "Declined", es: "Declinó" })}</option>
-                      </select>
-                    </div>
-                    <div>
-                      <FieldLabel
-                        lang={formLang}
-                        en="Note (e.g. reason if declined)"
-                        es="Nota (p. ej. motivo si declinó)"
-                      />
-                      <input
-                        type="text"
-                        disabled={!closingPrayer}
-                        className={SACRAMENT_ASSIGNMENT_NOTE_CLASS}
-                        value={closingPrayerNote ?? ""}
-                        onChange={(e) => setClosingPrayerNote(e.target.value || null)}
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel lang={formLang} en="Prayed that Sunday?" es="¿Oró ese domingo?" />
-                      <select
-                        id="closePray-ful"
-                        disabled={!closingPrayer}
-                        className={SACRAMENT_SELECT_ROW_CLASS}
-                        value={
-                          closingPrayerFulfilled === true ? "yes" : closingPrayerFulfilled === false ? "no" : ""
-                        }
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setClosingPrayerFulfilled(v === "yes" ? true : v === "no" ? false : null);
-                        }}
-                      >
-                        <option value="">{formT(formLang, { en: "Unknown", es: "Desconocido" })}</option>
-                        <option value="yes">{formT(formLang, { en: "Yes", es: "Sí" })}</option>
-                        <option value="no">{formT(formLang, { en: "No", es: "No" })}</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  <PrayerAssignmentCard
+                    variant="closing"
+                    lang={formLang}
+                    members={bundle.members}
+                    memberId={closingPrayer}
+                    memberName={closingPrayer ? (memberNameById.get(closingPrayer) ?? null) : null}
+                    responseStatus={closingPrayerResponse}
+                    responseNote={closingPrayerNote}
+                    fulfilled={closingPrayerFulfilled}
+                    onMemberChange={setClosingPrayer}
+                    onResponseChange={setClosingPrayerResponse}
+                    onNoteChange={setClosingPrayerNote}
+                onFulfilledChange={setClosingPrayerFulfilled}
+              />
             </div>
           </section>
 

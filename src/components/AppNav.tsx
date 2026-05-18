@@ -1,4 +1,5 @@
 import { fetchUserWardRoles } from "@/lib/serverRoles";
+import { userDisplayNameFromAuth, userInitialsFromDisplayName } from "@/lib/userDisplayName";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 
@@ -7,31 +8,8 @@ const links = [
   { href: "/members", label: "Members" },
   { href: "/sacrament", label: "Sacrament" },
   { href: "/callings", label: "Callings" },
+  { href: "/settings", label: "Settings" },
 ];
-
-function displayNameFromUser(user: {
-  user_metadata?: Record<string, unknown>;
-  email?: string | null;
-}): string {
-  const meta = user.user_metadata ?? {};
-  const full =
-    (typeof meta.full_name === "string" && meta.full_name) ||
-    (typeof meta.name === "string" && meta.name) ||
-    "";
-  if (full.trim()) return full.trim();
-  return user.email?.split("@")[0] ?? "Account";
-}
-
-function initialsFromDisplayName(displayName: string): string {
-  const parts = displayName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    const a = parts[0][0];
-    const b = parts[parts.length - 1][0];
-    if (a && b) return (a + b).toUpperCase();
-  }
-  const s = displayName.trim().slice(0, 2);
-  return (s || "?").toUpperCase();
-}
 
 export async function AppNav() {
   const supabase = await createClient();
@@ -52,23 +30,24 @@ export async function AppNav() {
     if (w?.name) wardDisplayName = w.name;
   }
 
-  const displayName = user ? displayNameFromUser(user) : "";
+  const displayName = user ? userDisplayNameFromAuth(user) : "";
   const avatarUrl =
     user && typeof user.user_metadata?.avatar_url === "string"
       ? user.user_metadata.avatar_url
-      : null;
-
+      : typeof user?.user_metadata?.picture === "string"
+        ? user.user_metadata.picture
+        : null;
 
   return (
     <nav className="border-b border-border bg-surface/80 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-2 px-4 py-3">
-        <div className="order-1 min-w-0 max-w-[40%] shrink-0 text-sm font-semibold text-foreground sm:max-w-xs">
+      <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="min-w-0 shrink-0 text-sm font-semibold text-foreground sm:max-w-[12rem]">
           <span className="block truncate" title={wardDisplayName}>
             {wardDisplayName}
           </span>
         </div>
 
-        <div className="order-3 flex w-full flex-wrap items-center gap-2 sm:order-2 sm:flex-1 sm:justify-center md:w-auto">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:justify-center">
           {links.map((l) => (
             <Link
               key={l.href}
@@ -88,29 +67,34 @@ export async function AppNav() {
           ) : null}
         </div>
 
-        <div className="order-2 ml-auto flex shrink-0 items-center gap-2 sm:order-3 sm:ml-0">
+        <div className="relative z-20 flex shrink-0 items-center gap-2 sm:ml-auto">
           {user ? (
-            <>
+            <Link
+              href="/settings"
+              className="flex min-h-10 min-w-10 items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-surface-hover"
+              title={`${displayName} — account settings`}
+              aria-label={`${displayName}, account settings`}
+            >
               {avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element -- OAuth URLs; avoid remotePatterns churn
                 <img
                   src={avatarUrl}
                   alt=""
-                  className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-border"
+                  className="pointer-events-none h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-border"
                   referrerPolicy="no-referrer"
                 />
               ) : (
                 <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border"
+                  className="pointer-events-none flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border"
                   aria-hidden
                 >
-                  {initialsFromDisplayName(displayName)}
+                  {userInitialsFromDisplayName(displayName)}
                 </span>
               )}
-              <span className="hidden max-w-40 truncate text-sm text-foreground/90 sm:inline" title={displayName}>
+              <span className="max-w-[8rem] truncate text-sm font-medium text-foreground sm:max-w-[10rem]">
                 {displayName}
               </span>
-            </>
+            </Link>
           ) : null}
           <form action="/auth/sign-out" method="post">
             <button

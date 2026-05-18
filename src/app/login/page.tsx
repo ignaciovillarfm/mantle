@@ -28,7 +28,8 @@ function LoginInner() {
       <h1 className="text-2xl font-semibold">Sign in</h1>
       {err && (
         <p className="max-w-md rounded-lg border border-warning/40 bg-warning/10 px-4 py-2 text-center text-sm text-warning">
-          {err === "not_whitelisted" && "Your account is not authorized for this ward app."}
+          {err === "not_whitelisted" &&
+            "Your account is not authorized yet. Ask your ward for an invite, then sign in with the same Google email they used."}
           {err === "session_stale" && "Your session was ended. Please sign in again."}
           {err === "no_code" && "Missing OAuth code. Try again."}
           {err === "config" && "Server is missing Supabase configuration."}

@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
+import { acceptPendingWardInvites } from "@/lib/wardInvites";
 import { getPublicOrigin, safeInternalPath } from "@/lib/publicOrigin";
 import { getSupabasePublishableUrl } from "@/lib/supabase/normalizeUrl";
 import { type NextRequest, NextResponse } from "next/server";
@@ -57,11 +58,35 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/login?error=no_user", origin));
     }
 
-    const { data: profile } = await supabase
+    let { data: profile } = await supabase
       .from("profiles")
       .select("session_version")
       .eq("id", user.id)
       .maybeSingle();
+
+    if (!profile) {
+      try {
+        const admin = createServiceRoleClient();
+        const accepted = await acceptPendingWardInvites(admin, user.id, user.email);
+        if (accepted.createdProfile || accepted.acceptedCount > 0) {
+          const { data: refreshed } = await supabase
+            .from("profiles")
+            .select("session_version")
+            .eq("id", user.id)
+            .maybeSingle();
+          profile = refreshed;
+        }
+      } catch (inviteErr) {
+        console.error("[auth/callback] invite accept", inviteErr);
+      }
+    } else {
+      try {
+        const admin = createServiceRoleClient();
+        await acceptPendingWardInvites(admin, user.id, user.email);
+      } catch (inviteErr) {
+        console.error("[auth/callback] invite accept existing", inviteErr);
+      }
+    }
 
     if (!profile) {
       await supabase.auth.signOut();

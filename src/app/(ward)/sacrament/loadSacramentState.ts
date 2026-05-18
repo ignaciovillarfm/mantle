@@ -1,14 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import {
+  formatLocalISODate,
   MAX_DISCOURSE_SLOTS,
   MIN_DISCOURSE_SLOTS,
   normalizeSpeakerSlots,
+  parseLocalDateFromISO,
   parseSacramentProgram,
   parseTalkResponseStatus,
   type SacramentProgramBody,
   type SpeakerSlot,
   type TalkResponseStatus,
 } from "@/lib/sacramentProgram";
+import {
+  extractTestimonyUsageFromMeetings,
+  type TestimonyMessageUsage,
+} from "@/lib/sacramentTestimonyMessages";
 import { inferCallingGroup, type CallingGroupKey } from "@/lib/callings/groupCallingOptions";
 import {
   EMPTY_SACRAMENT_ROLE_POOL,
@@ -190,6 +196,7 @@ export async function loadSacramentPageState(
   meeting: SacramentMeetingState | null;
   speakers: SpeakerRowState[];
   previous: PreviousSacramentSnapshot | null;
+  testimonyMessageUsage: TestimonyMessageUsage[];
 }> {
   await assertWardAccess(wardId);
   const supabase = await createClient();
@@ -343,6 +350,22 @@ export async function loadSacramentPageState(
     /authorized priesthood holder/,
   ];
 
+  const testimonyCutoff = (() => {
+    const d = parseLocalDateFromISO(meetingDate);
+    d.setMonth(d.getMonth() - 2);
+    return formatLocalISODate(d);
+  })();
+  const { data: recentForTestimony } = await supabase
+    .from("sacrament_meetings")
+    .select("date, program")
+    .eq("ward_id", wardId)
+    .gte("date", testimonyCutoff)
+    .lt("date", meetingDate)
+    .order("date", { ascending: false });
+  const testimonyMessageUsage = extractTestimonyUsageFromMeetings(
+    (recentForTestimony ?? []) as { date: string; program: unknown }[],
+  );
+
   const suggestions: LeadershipSuggestions = {
     presidingIds: pickIds(bishopricMatchers),
     conductingIds: pickIds([
@@ -367,7 +390,17 @@ export async function loadSacramentPageState(
     ]),
   };
 
-  return { members, callingPositions, sectionTemplates, suggestions, rolePool, meeting, speakers, previous };
+  return {
+    members,
+    callingPositions,
+    sectionTemplates,
+    suggestions,
+    rolePool,
+    meeting,
+    speakers,
+    previous,
+    testimonyMessageUsage,
+  };
 }
 
 export type SacramentPageBundle = Awaited<ReturnType<typeof loadSacramentPageState>>;

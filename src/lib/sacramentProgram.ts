@@ -78,6 +78,10 @@ export type SacramentProgramBody = {
   preparationTheme: string;
   reverenceNote: string;
   priesthoodInstruction: string;
+  /** Preset id from `TESTIMONY_MESSAGES`, or `custom`. */
+  testimonyMessageId: string;
+  /** Ward-written message when `testimonyMessageId` is `custom`. */
+  testimonyMessageCustom: string;
 };
 
 /** Intro before the sacrament hymn on the printed program (EN / ES). */
@@ -94,7 +98,7 @@ export const SACRAMENT_REVERENCE_NOTE = {
 
 export const SACRAMENT_PRIESTHOOD_INSTRUCTION = {
   en: "We thank the priesthood; we ask that you may pass and sit with your families.",
-  es: "Agradecemos al sacerdocio; les pedimos que puedan pasar con sus familias.",
+  es: "Agradecemos al sacerdocio y les pedimos que puedan pasar con sus familias.",
 } as const;
 
 export const DEFAULT_SACRAMENT_PROGRAM: SacramentProgramBody = {
@@ -112,6 +116,8 @@ export const DEFAULT_SACRAMENT_PROGRAM: SacramentProgramBody = {
   preparationTheme: "",
   reverenceNote: SACRAMENT_REVERENCE_NOTE.es,
   priesthoodInstruction: SACRAMENT_PRIESTHOOD_INSTRUCTION.es,
+  testimonyMessageId: "",
+  testimonyMessageCustom: "",
 };
 
 const WARD_KIND_SET = new Set<string>(WARD_BUSINESS_SECTION_KINDS);
@@ -270,6 +276,71 @@ export function wardBusinessSectionDisplayOrder(section: WardBusinessSection): n
   if (section.kind === "new_members") return 40;
   if (section.kind === "other") return 50;
   return 999;
+}
+
+function wardBusinessMemberCallingRowCount(
+  entries: { memberId: string; callingPositionId: string }[],
+): number {
+  const seen = new Set<string>();
+  for (const e of entries) {
+    const mid = e.memberId?.trim();
+    if (mid) seen.add(mid);
+  }
+  return seen.size;
+}
+
+/** Table/data rows rendered for one ward-business subsection on the print preview. */
+export function countWardBusinessSectionPrintRows(sec: WardBusinessSection): number {
+  if (sec.kind === "releases") {
+    return wardBusinessMemberCallingRowCount(
+      (sec.releaseEntries ?? []).map((e) => ({
+        memberId: e.memberId,
+        callingPositionId: e.callingPositionId,
+      })),
+    );
+  }
+  if (sec.kind === "sustainings") {
+    return wardBusinessMemberCallingRowCount(
+      (sec.sustainingEntries ?? []).map((e) => ({
+        memberId: e.memberId,
+        callingPositionId: e.callingPositionId,
+      })),
+    );
+  }
+  if (sec.kind === "aaron_priesthood_ordination") {
+    return (sec.ordinationEntries ?? []).filter((o) => o.memberId?.trim()).length;
+  }
+  if (sec.kind === "new_members") {
+    const parsed = parseNewMembersNames(sec.newMembersNames?.trim() || sec.body?.trim() || "");
+    return parsed.familyName.trim() || parsed.familyMembers.trim() ? 1 : 0;
+  }
+  if (sec.kind === "other") {
+    return sec.body?.trim() ? 1 : 0;
+  }
+  return 0;
+}
+
+/**
+ * When true, ward business prints on page 2 (back). Rules:
+ * - 2+ subsections, or
+ * - 1 subsection with 3+ table rows.
+ */
+export function shouldMoveWardBusinessToPrintBack(sections: WardBusinessSection[] | undefined): boolean {
+  const list = sections ?? [];
+  if (list.length >= 2) return true;
+  if (list.length === 1) return countWardBusinessSectionPrintRows(list[0]) >= 3;
+  return false;
+}
+
+export function sortWardBusinessSectionsForPrint(sections: WardBusinessSection[]): WardBusinessSection[] {
+  return [...sections]
+    .map((sec, idx) => ({ sec, idx }))
+    .sort((a, b) => {
+      const orderDelta = wardBusinessSectionDisplayOrder(a.sec) - wardBusinessSectionDisplayOrder(b.sec);
+      if (orderDelta !== 0) return orderDelta;
+      return a.idx - b.idx;
+    })
+    .map(({ sec }) => sec);
 }
 
 export function defaultTemplateKeyForWardKind(kind: WardBusinessSectionKind): string | null {
@@ -521,6 +592,10 @@ export function parseSacramentProgram(raw: unknown): SacramentProgramBody {
     reverenceNote: str("reverenceNote") || DEFAULT_SACRAMENT_PROGRAM.reverenceNote,
     priesthoodInstruction:
       str("priesthoodInstruction") || DEFAULT_SACRAMENT_PROGRAM.priesthoodInstruction,
+    testimonyMessageId:
+      typeof o.testimonyMessageId === "string" ? o.testimonyMessageId : "",
+    testimonyMessageCustom:
+      typeof o.testimonyMessageCustom === "string" ? o.testimonyMessageCustom : "",
   };
 }
 
@@ -574,6 +649,69 @@ export function sacramentSundayLongLabel(iso: string, lang: SacramentFormLang = 
     day: "numeric",
     year: "numeric",
   });
+}
+
+export type SacramentMeetingProgramKind = "regular" | "testimony" | "general_conference";
+
+/** Which Sunday of the calendar month (1–5); `sunday` must fall on a Sunday. */
+export function nthSundayOfMonth(sunday: Date): number {
+  const y = sunday.getFullYear();
+  const m = sunday.getMonth();
+  let n = 0;
+  for (let day = 1; day <= sunday.getDate(); day++) {
+    if (new Date(y, m, day).getDay() === 0) n++;
+  }
+  return n;
+}
+
+/** April and October: testimony is on the 2nd Sunday (1st is General Conference weekend). */
+export function isGeneralConferenceMonth(monthIndex: number): boolean {
+  return monthIndex === 3 || monthIndex === 9;
+}
+
+/**
+ * Whether this sacrament week uses assigned discourses or testimony / General Conference.
+ * - Most months: 1st Sunday = testimony.
+ * - April & October: 1st Sunday = General Conference; 2nd Sunday = testimony.
+ */
+export function sacramentMeetingProgramKind(meetingWeekIso: string): SacramentMeetingProgramKind {
+  const sunday = startOfWeekSundayFromISO(meetingWeekIso);
+  const nth = nthSundayOfMonth(sunday);
+  const month = sunday.getMonth();
+
+  if (isGeneralConferenceMonth(month) && nth === 1) return "general_conference";
+  if (isGeneralConferenceMonth(month)) return nth === 2 ? "testimony" : "regular";
+  return nth === 1 ? "testimony" : "regular";
+}
+
+export function hasAssignedDiscourses(kind: SacramentMeetingProgramKind): boolean {
+  return kind === "regular";
+}
+
+export function sacramentMeetingKindSectionTitle(
+  kind: SacramentMeetingProgramKind,
+  lang: SacramentFormLang,
+): string {
+  if (kind === "testimony") return lang === "es" ? "Testimonios" : "Testimonies";
+  if (kind === "general_conference") return lang === "es" ? "Conferencia General" : "General Conference";
+  return lang === "es" ? "Discursos" : "Speakers";
+}
+
+export function sacramentMeetingKindNotice(
+  kind: SacramentMeetingProgramKind,
+  lang: SacramentFormLang,
+): string {
+  if (kind === "testimony") {
+    return lang === "es"
+      ? "Reunión de testimonios del barrio. No se asignan discursos."
+      : "Ward testimony meeting. No talks are assigned.";
+  }
+  if (kind === "general_conference") {
+    return lang === "es"
+      ? "Conferencia General de la Iglesia. No hay discursos del barrio."
+      : "Church General Conference. No ward talks are scheduled.";
+  }
+  return "";
 }
 
 /** Move the selected calendar date by whole weeks. */
