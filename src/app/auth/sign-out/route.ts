@@ -10,7 +10,7 @@ async function signOutAndRedirect(request: NextRequest) {
   const loginUrl = new URL("/login", origin);
   loginUrl.searchParams.set("signed_out", "1");
 
-  let response = NextResponse.redirect(loginUrl);
+  const response = NextResponse.redirect(loginUrl);
 
   const url = getSupabasePublishableUrl();
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
