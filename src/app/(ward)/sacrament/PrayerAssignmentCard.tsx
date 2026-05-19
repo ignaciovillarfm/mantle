@@ -1,20 +1,26 @@
 "use client";
 
 import { MemberSearchSelect } from "@/components/MemberSearchSelect";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { SacramentFormLang, TalkResponseStatus } from "@/lib/sacramentProgram";
 import { useEffect, useState } from "react";
-
-const SELECT_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background py-0 pl-3 pr-10 text-sm leading-10 text-foreground disabled:opacity-50";
-const NOTE_INPUT_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none disabled:opacity-50";
 
 function t(lang: SacramentFormLang, en: string, es: string) {
   return lang === "es" ? es : en;
 }
 
 function FieldLabel({ lang, en, es }: { lang: SacramentFormLang; en: string; es: string }) {
-  return <span className="mb-1 block font-medium text-foreground">{t(lang, en, es)}</span>;
+  return <Label className="mb-1 block font-medium text-foreground">{t(lang, en, es)}</Label>;
 }
 
 function PencilIcon() {
@@ -102,15 +108,17 @@ export function PrayerAssignmentCard({
               {memberName ?? t(lang, "Unassigned", "Sin asignar")}
             </p>
             <div className="flex shrink-0 items-center gap-2">
-              <button
+              <Button
                 type="button"
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/80 text-foreground/70 opacity-0 transition-opacity hover:bg-surface-hover hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+                variant="outline"
+                size="icon"
+                className="size-8 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
                 onClick={() => setExpanded(true)}
                 aria-label={t(lang, "Edit", "Editar")}
                 title={t(lang, "Edit", "Editar")}
               >
                 <PencilIcon />
-              </button>
+              </Button>
               <span
                 className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                   fulfilled
@@ -124,16 +132,14 @@ export function PrayerAssignmentCard({
           </div>
         </div>
       ) : (
-        <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
-          <div>
-            <MemberSearchSelect
-              id={selectId}
-              lang={lang}
-              members={members}
-              value={memberId}
-              onChange={handleMemberChange}
-            />
-          </div>
+        <div className="space-y-3">
+          <MemberSearchSelect
+            id={selectId}
+            lang={lang}
+            members={members}
+            value={memberId}
+            onChange={handleMemberChange}
+          />
 
           {hasMember ? (
             <div className="border-t border-border pt-3">
@@ -143,22 +149,26 @@ export function PrayerAssignmentCard({
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <FieldLabel lang={lang} en="Response" es="Respuesta" />
-                  <select
-                    id={`${selectId}-res`}
-                    className={SELECT_CLASS}
+                  <Select
                     value={responseStatus}
-                    onChange={(e) => onResponseChange(e.target.value as TalkResponseStatus)}
+                    onValueChange={(v) => {
+                      if (v) onResponseChange(v as TalkResponseStatus);
+                    }}
                   >
-                    <option value="pending">{t(lang, "Pending", "Pendiente")}</option>
-                    <option value="accepted">{t(lang, "Accepted", "Aceptó")}</option>
-                    <option value="declined">{t(lang, "Declined", "Declinó")}</option>
-                  </select>
+                    <SelectTrigger id={`${selectId}-res`} className="mt-1 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">{t(lang, "Pending", "Pendiente")}</SelectItem>
+                      <SelectItem value="accepted">{t(lang, "Accepted", "Aceptó")}</SelectItem>
+                      <SelectItem value="declined">{t(lang, "Declined", "Declinó")}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <FieldLabel lang={lang} en="Note (if declined)" es="Nota (si declinó)" />
-                  <input
-                    type="text"
-                    className={NOTE_INPUT_CLASS}
+                  <Input
+                    className="mt-1"
                     value={responseNote ?? ""}
                     onChange={(e) => onNoteChange(e.target.value || null)}
                   />
@@ -166,47 +176,40 @@ export function PrayerAssignmentCard({
               </div>
               <div className="mt-3">
                 <FieldLabel lang={lang} en="Prayed that Sunday?" es="¿Oró ese domingo?" />
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {(
-                    [
-                      { value: null, en: "Unknown", es: "Desconocido" },
-                      { value: true, en: "Yes", es: "Sí" },
-                      { value: false, en: "No", es: "No" },
-                    ] as const
-                  ).map((opt) => {
-                    const active = fulfilled === opt.value;
-                    return (
-                      <button
-                        key={String(opt.value)}
-                        type="button"
-                        className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                          active
-                            ? opt.value === true
-                              ? "border-green-600/40 bg-green-600/10 font-medium text-green-900 dark:text-green-200"
-                              : opt.value === false
-                                ? "border-amber-600/40 bg-amber-600/10 font-medium text-amber-900 dark:text-amber-200"
-                                : "border-foreground/30 bg-foreground/5 font-medium"
-                            : "border-border text-foreground/70 hover:bg-surface-hover"
-                        }`}
-                        onClick={() => onFulfilledChange(opt.value)}
-                      >
-                        {t(lang, opt.en, opt.es)}
-                      </button>
-                    );
-                  })}
-                </div>
+                <ToggleGroup
+                  variant="outline"
+                  className="mt-1 flex flex-wrap justify-start gap-1"
+                  value={[fulfilled === null ? "unknown" : fulfilled ? "yes" : "no"]}
+                  onValueChange={(v) => {
+                    const next = v[0];
+                    if (!next) return;
+                    onFulfilledChange(next === "unknown" ? null : next === "yes");
+                  }}
+                >
+                  <ToggleGroupItem value="unknown" className="text-sm">
+                    {t(lang, "Unknown", "Desconocido")}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="yes" className="text-sm">
+                    {t(lang, "Yes", "Sí")}
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="no" className="text-sm">
+                    {t(lang, "No", "No")}
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
             </div>
           ) : null}
 
           {recorded ? (
-            <button
+            <Button
               type="button"
-              className="text-xs text-foreground/50 hover:text-foreground"
+              variant="link"
+              size="sm"
+              className="h-auto px-0 text-xs"
               onClick={() => setExpanded(false)}
             >
               {t(lang, "Done editing", "Listo")}
-            </button>
+            </Button>
           ) : null}
         </div>
       )}

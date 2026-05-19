@@ -1,6 +1,26 @@
 "use client";
 
-import { AppModal } from "@/components/AppModal";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { hoverRevealRemoveClassName, removeIconMarkClassName } from "@/lib/hoverRevealRemove";
 import { MemberSearchSelect } from "@/components/MemberSearchSelect";
 import { GroupedCallingSelect } from "@/components/GroupedCallingSelect";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -71,12 +91,12 @@ function WardBusinessPersonFields({
   }, [onAdd, onRemove, rowId, showCalling, showOffice, variant]);
 
   return (
-    <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
+    <div className="group grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
       <div>
         {showLabels ? (
-          <label htmlFor={`ward-person-member-${rowId}`} className="mb-1 block text-sm font-medium text-foreground">
+          <Label htmlFor={`ward-person-member-${rowId}`} className="mb-1 block">
             {ft(formLang, { en: "Name", es: "Nombre" })}
-          </label>
+          </Label>
         ) : null}
         <MemberSearchSelect
           id={`ward-person-member-${rowId}`}
@@ -84,16 +104,15 @@ function WardBusinessPersonFields({
           members={members}
           value={memberId}
           onChange={onMemberChange}
-          className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 text-left text-sm"
         />
       </div>
 
       {showCalling ? (
         <div>
           {showLabels ? (
-            <label htmlFor={`ward-person-calling-${rowId}`} className="mb-1 block text-sm font-medium text-foreground">
+            <Label htmlFor={`ward-person-calling-${rowId}`} className="mb-1 block">
               {ft(formLang, { en: "Calling / role", es: "Cargo" })}
-            </label>
+            </Label>
           ) : null}
           <GroupedCallingSelect
             id={`ward-person-calling-${rowId}`}
@@ -108,21 +127,25 @@ function WardBusinessPersonFields({
       {showOffice ? (
         <div>
           {showLabels ? (
-            <label htmlFor={`ward-person-office-${rowId}`} className="mb-1 block text-sm font-medium text-foreground">
+            <Label htmlFor={`ward-person-office-${rowId}`} className="mb-1 block">
               {ft(formLang, { en: "Office", es: "Oficio" })}
-            </label>
+            </Label>
           ) : null}
-          <select
-            id={`ward-person-office-${rowId}`}
-            className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+          <Select
             value={office ?? ""}
-            onChange={(e) => onOfficeChange?.(e.target.value as WardBusinessModalFields["aaronicOffice"])}
+            onValueChange={(v) =>
+              onOfficeChange?.((v || "") as WardBusinessModalFields["aaronicOffice"])
+            }
           >
-            <option value="">{ft(formLang, { en: "Choose…", es: "Elegir…" })}</option>
-            <option value="deacon">{ft(formLang, { en: "Deacon", es: "Diácono" })}</option>
-            <option value="teacher">{ft(formLang, { en: "Teacher", es: "Maestro" })}</option>
-            <option value="priest">{ft(formLang, { en: "Priest", es: "Presbítero" })}</option>
-          </select>
+            <SelectTrigger id={`ward-person-office-${rowId}`} className="w-full">
+              <SelectValue placeholder={ft(formLang, { en: "Choose…", es: "Elegir…" })} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="deacon">{ft(formLang, { en: "Deacon", es: "Diácono" })}</SelectItem>
+              <SelectItem value="teacher">{ft(formLang, { en: "Teacher", es: "Maestro" })}</SelectItem>
+              <SelectItem value="priest">{ft(formLang, { en: "Priest", es: "Presbítero" })}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       ) : null}
 
@@ -131,16 +154,20 @@ function WardBusinessPersonFields({
           {showLabels ? (
             <span className="mb-1 block text-sm font-medium text-transparent select-none">.</span>
           ) : null}
-          <button
+          <Button
             type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border text-base leading-none hover:bg-surface-hover disabled:opacity-40"
+            variant="outline"
+            size="icon"
+            className={`size-10 rounded-full hover:bg-red-500/10 hover:text-red-600 disabled:opacity-40 ${hoverRevealRemoveClassName}`}
             disabled={disableRemove}
             onClick={onRemove}
             aria-label={removeLabel ?? ft(formLang, { en: "Remove person", es: "Quitar persona" })}
             title={removeLabel ?? ft(formLang, { en: "Remove person", es: "Quitar persona" })}
           >
-            ×
-          </button>
+            <span className={removeIconMarkClassName} aria-hidden>
+              ×
+            </span>
+          </Button>
         </div>
       ) : (
         <div className="sm:pb-0.5">
@@ -159,15 +186,17 @@ function WardBusinessPersonFields({
           {showLabels ? (
             <span className="mb-1 block text-sm font-medium text-transparent select-none">.</span>
           ) : null}
-          <button
+          <Button
             type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border text-xl leading-none hover:bg-surface-hover disabled:opacity-40"
+            variant="outline"
+            size="icon"
+            className="size-10 rounded-full text-xl leading-none disabled:opacity-40"
             onClick={onAdd}
             aria-label={addLabel ?? ft(formLang, { en: "Add person", es: "Agregar persona" })}
             title={addLabel ?? ft(formLang, { en: "Add person", es: "Agregar persona" })}
           >
             +
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="sm:pb-0.5">
@@ -323,45 +352,25 @@ export function AddWardBusinessSectionModal({
   }, [atCapacity, editingSection, fields, formLang, kind, localizedCallingOptions, members, onConfirm]);
 
   return (
-    <AppModal
-      open={open}
-      onClose={close}
-      titleId="ward-add-section-title"
-      sheetOnMobile
-      title={
-        editingSection
-          ? ft(formLang, { en: "Edit ward business section", es: "Editar sección de asuntos del barrio" })
-          : ft(formLang, { en: "Add ward business section", es: "Agregar sección de asuntos del barrio" })
-      }
-      description={ft(formLang, {
-        en: "Choose the type, fill the fields, then add. You can still edit everything afterward.",
-        es: "Elige el tipo, completa los campos y agrega. Luego puedes editar todo en el programa.",
-      })}
-      closeLabel={ft(formLang, { en: "Close", es: "Cerrar" })}
-      footer={
-        <div className="flex flex-wrap justify-end gap-2">
-          <button
-            type="button"
-            className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface-hover"
-            onClick={close}
-          >
-            {ft(formLang, { en: "Cancel", es: "Cancelar" })}
-          </button>
-          <button
-            type="button"
-            disabled={!kind || (atCapacity && !editingSection)}
-            className="rounded-lg border border-border bg-foreground px-4 py-2 text-sm text-background hover:opacity-90 disabled:opacity-50"
-            onClick={() => void submit()}
-          >
+    <Dialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
+      <DialogContent className="flex max-h-[min(90vh,720px)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b p-4 pb-3">
+          <DialogTitle id="ward-add-section-title">
             {editingSection
-              ? ft(formLang, { en: "Save changes", es: "Guardar cambios" })
-              : ft(formLang, { en: "Add section", es: "Agregar sección" })}
-          </button>
-        </div>
-      }
-    >
+              ? ft(formLang, { en: "Edit ward business section", es: "Editar sección de asuntos del barrio" })
+              : ft(formLang, { en: "Add ward business section", es: "Agregar sección de asuntos del barrio" })}
+          </DialogTitle>
+          <DialogDescription>
+            {ft(formLang, {
+              en: "Choose the type, fill the fields, then add. You can still edit everything afterward.",
+              es: "Elige el tipo, completa los campos y agrega. Luego puedes editar todo en el programa.",
+            })}
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="space-y-4 p-4">
         {atCapacity ? (
-          <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          <p className="text-sm text-amber-700">
             {ft(formLang, {
               en: "Maximum number of sections reached. Remove one to add another.",
               es: "Se alcanzó el máximo de secciones. Quita una para agregar otra.",
@@ -369,31 +378,27 @@ export function AddWardBusinessSectionModal({
           </p>
         ) : null}
 
-        <div className="mt-4 space-y-4">
+        <div className="space-y-4">
           <div>
-            <label htmlFor="ward-add-kind" className="mb-1 block text-sm font-medium text-foreground">
+            <Label htmlFor="ward-add-kind" className="mb-1 block">
               {ft(formLang, { en: "Section type", es: "Tipo de sección" })}
-            </label>
-            <select
-              id="ward-add-kind"
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
-              value={kind}
+            </Label>
+            <Select
+              value={kind || undefined}
               disabled={Boolean(editingSection)}
-              onChange={(e) =>
-                setKind(
-                  e.target.value === ""
-                    ? ""
-                    : (e.target.value as WardBusinessSectionKind),
-                )
-              }
+              onValueChange={(v) => setKind((v ?? "") as WardBusinessSectionKind | "")}
             >
-              <option value="">{ft(formLang, { en: "Choose…", es: "Elegir…" })}</option>
-              {SECTION_KIND_ORDER.map((k) => (
-                <option key={k} value={k}>
-                  {wardBusinessSectionDefaultTitle(k, formLang)}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="ward-add-kind" className="w-full">
+                <SelectValue placeholder={ft(formLang, { en: "Choose…", es: "Elegir…" })} />
+              </SelectTrigger>
+              <SelectContent>
+                {SECTION_KIND_ORDER.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {wardBusinessSectionDefaultTitle(k, formLang)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {kind === "sustainings" ? (
@@ -518,15 +523,15 @@ export function AddWardBusinessSectionModal({
           {kind === "new_members" ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label htmlFor="ward-newm-family" className="mb-1 block text-sm font-medium text-foreground">
+                <Label htmlFor="ward-newm-family" className="mb-1 block">
                   {ft(formLang, {
                     en: "Family name",
                     es: "Apellido de familia",
                   })}
-                </label>
-                <input
+                </Label>
+                <Input
                   id="ward-newm-family"
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  className="mt-1"
                   value={fields.familyName}
                   onChange={(e) => setFields((f) => ({ ...f, familyName: e.target.value }))}
                   placeholder={ft(formLang, {
@@ -536,15 +541,15 @@ export function AddWardBusinessSectionModal({
                 />
               </div>
               <div>
-                <label htmlFor="ward-newm-members" className="mb-1 block text-sm font-medium text-foreground">
+                <Label htmlFor="ward-newm-members" className="mb-1 block">
                   {ft(formLang, {
                     en: "Members",
                     es: "Integrantes",
                   })}
-                </label>
-                <input
+                </Label>
+                <Input
                   id="ward-newm-members"
-                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  className="mt-1"
                   value={fields.familyMembers}
                   onChange={(e) => setFields((f) => ({ ...f, familyMembers: e.target.value }))}
                   placeholder={ft(formLang, {
@@ -629,13 +634,13 @@ export function AddWardBusinessSectionModal({
 
           {kind === "other" ? (
             <div>
-              <label htmlFor="ward-other" className="mb-1 block text-sm font-medium text-foreground">
+              <Label htmlFor="ward-other" className="mb-1 block">
                 {ft(formLang, { en: "Details", es: "Detalles" })}
-              </label>
-              <textarea
+              </Label>
+              <Textarea
                 id="ward-other"
                 rows={4}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                className="mt-1"
                 value={fields.otherDetails}
                 onChange={(e) => setFields((f) => ({ ...f, otherDetails: e.target.value }))}
                 placeholder={ft(formLang, {
@@ -646,7 +651,23 @@ export function AddWardBusinessSectionModal({
             </div>
           ) : null}
         </div>
-
-    </AppModal>
+          </div>
+        </ScrollArea>
+        <DialogFooter className="border-t p-4">
+          <Button type="button" variant="outline" onClick={close}>
+            {ft(formLang, { en: "Cancel", es: "Cancelar" })}
+          </Button>
+          <Button
+            type="button"
+            disabled={!kind || (atCapacity && !editingSection)}
+            onClick={() => void submit()}
+          >
+            {editingSection
+              ? ft(formLang, { en: "Save changes", es: "Guardar cambios" })
+              : ft(formLang, { en: "Add section", es: "Agregar sección" })}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

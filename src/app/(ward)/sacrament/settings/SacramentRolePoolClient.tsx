@@ -2,7 +2,19 @@
 
 import { AddMemberModal } from "@/app/(ward)/members/AddMemberModal";
 import { MemberSearchInput } from "@/components/MemberSearchPanel";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { memberMatchesQuery, normalizeMemberSearch } from "@/lib/members/memberSearch";
+import { cn } from "@/lib/utils";
+import { ChevronLeft } from "lucide-react";
+import Link from "next/link";
 import {
   dedupeMemberIds,
   normalizeRolePool,
@@ -17,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RolePoolDraggableList } from "./RolePoolDraggableList";
 
 const AUTO_SAVE_DEBOUNCE_MS = 800;
+const SACRAMENT_LANG_STORAGE_KEY = "mantle-sacrament-form-lang";
 
 type MemberOption = { id: string; name: string };
 type Lang = "en" | "es";
@@ -28,12 +41,14 @@ function t(lang: Lang, en: string, es: string) {
 export function SacramentRolePoolClient({
   wardId,
   wardName,
+  sacramentHref,
   members: initialMembers,
   initialRolePool,
   callingOptions,
 }: {
   wardId: string;
   wardName: string;
+  sacramentHref: string;
   members: MemberOption[];
   initialRolePool: SacramentRolePool;
   callingOptions: { id: string; title: string }[];
@@ -50,6 +65,24 @@ export function SacramentRolePoolClient({
   const lastSavedRef = useRef(serializeRolePool(initialRolePool));
   const rolePoolRef = useRef(rolePool);
   rolePoolRef.current = rolePool;
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SACRAMENT_LANG_STORAGE_KEY);
+      if (raw === "en" || raw === "es") setLang(raw);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const setLangPersisted = useCallback((next: Lang) => {
+    setLang(next);
+    try {
+      localStorage.setItem(SACRAMENT_LANG_STORAGE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     lastSavedRef.current = serializeRolePool(initialRolePool);
@@ -171,56 +204,60 @@ export function SacramentRolePoolClient({
     [addMember, selectedMemberId],
   );
 
-  const totalAssigned = useMemo(
-    () => SACRAMENT_ROLE_KEYS.reduce((sum, role) => sum + rolePool[role].length, 0),
-    [rolePool],
-  );
-
-  const saveHint =
-    saveStatus === "saving"
-      ? t(lang, "Saving…", "Guardando…")
-      : saveStatus === "saved"
-        ? t(lang, "Saved", "Guardado")
-        : saveStatus === "error" && saveMsg
-          ? saveMsg
-          : null;
-
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-foreground/70">{t(lang, "Language", "Idioma")}</span>
-          <select
-            suppressHydrationWarning
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            value={lang}
-            onChange={(e) => setLang(e.target.value as Lang)}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-2">
+          <Link
+            href={sacramentHref}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "-ml-2 gap-1 text-text-secondary hover:text-foreground",
+            )}
           >
-            <option value="es">Español</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-        <div className="flex flex-wrap items-center gap-3">
+            <ChevronLeft className="size-4" aria-hidden />
+            {t(lang, "Back to sacrament meeting", "Volver a la reunión sacramental")}
+          </Link>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {t(lang, "Sacrament role members", "Miembros por cargo sacramental")}
+          </h1>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+          <Select
+            value={lang}
+            onValueChange={(v) => {
+              if (v) setLangPersisted(v as Lang);
+            }}
+          >
+            <SelectTrigger
+              id="sacrament-settings-lang"
+              className="w-[130px]"
+              aria-label={t(lang, "Form language", "Idioma del formulario")}
+            >
+              <SelectValue>{lang === "es" ? "Español" : "English"}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="es">Español</SelectItem>
+              <SelectItem value="en">English</SelectItem>
+            </SelectContent>
+          </Select>
           <AddMemberModal
             ward={{ id: wardId, name: wardName }}
             callingOptions={callingOptions}
             triggerLabel={t(lang, "Add member", "Agregar miembro")}
             onMemberCreated={handleMemberCreated}
           />
-          {saveHint ? (
-            <span
-              className={`text-sm tabular-nums ${
-                saveStatus === "error"
-                  ? "text-red-600"
-                  : saveStatus === "saved"
-                    ? "text-green-700 dark:text-green-400"
-                    : "text-foreground/50"
-              }`}
-              aria-live="polite"
-            >
-              {saveHint}
-            </span>
-          ) : null}
+          <div className="text-sm" aria-live="polite">
+            {saveStatus === "saving" ? (
+              <Badge variant="secondary">{t(lang, "Saving…", "Guardando…")}</Badge>
+            ) : saveStatus === "saved" ? (
+              <Badge className="border-green-600/30 bg-green-600/10 text-green-800">
+                {t(lang, "Saved", "Guardado")}
+              </Badge>
+            ) : saveStatus === "error" && saveMsg ? (
+              <Badge variant="destructive">{saveMsg}</Badge>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -314,29 +351,17 @@ export function SacramentRolePoolClient({
       </section>
 
       <div>
-        <div className="mb-3 flex items-baseline justify-between gap-2">
-          <h2 className="text-base font-semibold">{t(lang, "Role sections", "Secciones por cargo")}</h2>
-          <span className="text-sm text-foreground/55">
-            {t(lang, `${totalAssigned} members assigned`, `${totalAssigned} miembros asignados`)}
-          </span>
-        </div>
+        <h2 className="mb-3 text-base font-semibold">{t(lang, "Role sections", "Secciones por cargo")}</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           {SACRAMENT_ROLE_KEYS.map((role) => {
             const label = sacramentRoleLabel(role, lang);
             const title = lang === "es" ? label.es : label.en;
-            const count = rolePool[role].length;
-
             return (
               <section
                 key={role}
                 className="flex min-h-[8rem] flex-col overflow-visible rounded-xl border border-border bg-surface p-4 shadow-sm"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold leading-snug">{title}</h3>
-                  <span className="shrink-0 rounded-full bg-foreground/10 px-2.5 py-0.5 text-xs font-medium tabular-nums">
-                    {count}
-                  </span>
-                </div>
+                <h3 className="font-semibold leading-snug">{title}</h3>
                 <div className="mt-3 flex-1 overflow-visible">
                   <RolePoolDraggableList
                     role={role}

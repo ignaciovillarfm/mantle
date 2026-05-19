@@ -1,5 +1,6 @@
 "use client";
 
+import { MantleLogo } from "@/components/MantleLogo";
 import { createClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -25,9 +26,10 @@ function LoginInner() {
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-6">
-      <h1 className="text-2xl font-semibold">Sign in</h1>
+      <MantleLogo priority />
+      <h1 className="text-xl font-semibold">Sign in</h1>
       {err && (
-        <p className="max-w-md rounded-lg border border-warning/40 bg-warning/10 px-4 py-2 text-center text-sm text-warning">
+        <p className="max-w-md rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-center text-sm text-warning">
           {searchParams.get("signed_out") === "1" && !err && (
             <span className="text-foreground/80">You have been signed out.</span>
           )}
@@ -59,7 +61,13 @@ function LoginInner() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center">Loading…</div>}>
+    <Suspense
+      fallback={
+        <div className="flex min-h-dvh items-center justify-center p-8 text-center">
+          Loading…
+        </div>
+      }
+    >
       <LoginInner />
     </Suspense>
   );

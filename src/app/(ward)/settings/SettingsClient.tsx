@@ -1,5 +1,6 @@
 "use client";
 
+import { AppearanceSettings } from "./AppearanceSettings";
 import { WardInvitesPanel } from "./WardInvitesPanel";
 import { userInitialsFromDisplayName } from "@/lib/userDisplayName";
 import Link from "next/link";
@@ -82,6 +83,8 @@ export function SettingsClient({
           </dl>
         </div>
       </section>
+
+      <AppearanceSettings />
 
       <section className="rounded-xl border border-border bg-surface p-5">
         <h2 className="text-lg font-semibold">Ward access & roles</h2>

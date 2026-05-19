@@ -312,7 +312,6 @@ export default async function SacramentPrintPage({
                 const rows = parseAnnouncementRows(program?.announcements ?? "");
                 return rows.length > 0 ? rows : [""];
               })()}
-              showIndex
             />
           </div>
           <div className="mt-2">

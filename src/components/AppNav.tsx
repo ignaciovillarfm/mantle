@@ -1,3 +1,4 @@
+import { MantleLogo } from "@/components/MantleLogo";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
 import { userDisplayNameFromAuth, userInitialsFromDisplayName } from "@/lib/userDisplayName";
 import { createClient } from "@/lib/supabase/server";
@@ -8,7 +9,6 @@ const links = [
   { href: "/members", label: "Members" },
   { href: "/sacrament", label: "Sacrament" },
   { href: "/callings", label: "Callings" },
-  { href: "/settings", label: "Settings" },
 ];
 
 export async function AppNav() {
@@ -41,8 +41,14 @@ export async function AppNav() {
   return (
     <nav className="border-b border-border bg-surface/80 backdrop-blur">
       <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="min-w-0 shrink-0 text-sm font-semibold text-foreground sm:max-w-[12rem]">
-          <span className="block truncate" title={wardDisplayName}>
+        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:max-w-[14rem]">
+          <Link href="/dashboard" className="shrink-0" aria-label="Mantle home">
+            <MantleLogo variant="mark" />
+          </Link>
+          <span
+            className="min-w-0 truncate text-sm font-semibold text-foreground"
+            title={wardDisplayName}
+          >
             {wardDisplayName}
           </span>
         </div>

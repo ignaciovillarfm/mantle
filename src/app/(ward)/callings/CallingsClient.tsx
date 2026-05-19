@@ -1,6 +1,7 @@
 "use client";
 
 import { useOnline } from "@/hooks/useOnline";
+import { hoverRevealRemoveClassName } from "@/lib/hoverRevealRemove";
 import { useEffect, useMemo, useState } from "react";
 import {
   AddCallingModal,
@@ -49,6 +50,47 @@ const GROUP_ORDER: GroupDef[] = [
   { key: "mission_tfh", label: "Mission & Family History" },
   { key: "other", label: "Other" },
 ];
+
+type MergedMemberCallingRow = {
+  member_id: string;
+  memberName: string;
+  ward_id: string;
+  wardName: string;
+  callings: CallingRow[];
+};
+
+function mergeCallingsByMemberInGroup(rows: CallingRow[]): MergedMemberCallingRow[] {
+  const byMember = new Map<string, MergedMemberCallingRow>();
+  for (const row of rows) {
+    const key = `${row.member_id}:${row.ward_id}`;
+    const existing = byMember.get(key);
+    if (existing) {
+      existing.callings.push(row);
+    } else {
+      byMember.set(key, {
+        member_id: row.member_id,
+        memberName: row.members?.name ?? "Member",
+        ward_id: row.ward_id,
+        wardName: row.wardName,
+        callings: [row],
+      });
+    }
+  }
+  const merged = [...byMember.values()];
+  for (const entry of merged) {
+    entry.callings.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return merged.sort(
+    (a, b) =>
+      a.memberName.localeCompare(b.memberName) ||
+      (a.callings[0]?.name ?? "").localeCompare(b.callings[0]?.name ?? ""),
+  );
+}
+
+function callingStatusLabel(callings: CallingRow[]): string {
+  const labels = [...new Set(callings.map((c) => normalizeStatusForUi(c.status) ?? c.status))];
+  return labels.join(", ");
+}
 
 function inferCallingGroup(name: string): GroupDef["key"] {
   const t = name.trim().toLowerCase();
@@ -115,10 +157,10 @@ export function CallingsClient({
       arr.push(it);
       byGroup.set(g, arr);
     }
-    for (const arr of byGroup.values()) {
-      arr.sort((a, b) => a.name.localeCompare(b.name) || (a.members?.name ?? "").localeCompare(b.members?.name ?? ""));
-    }
-    return GROUP_ORDER.map((g) => ({ ...g, rows: byGroup.get(g.key) ?? [] })).filter((g) => g.rows.length > 0);
+    return GROUP_ORDER.map((g) => ({
+      ...g,
+      rows: mergeCallingsByMemberInGroup(byGroup.get(g.key) ?? []),
+    })).filter((g) => g.rows.length > 0);
   }, [items]);
 
   async function advance(id: string, target: string) {
@@ -214,55 +256,69 @@ export function CallingsClient({
               {group.label}
             </h2>
             <ul className="divide-y divide-border">
-              {group.rows.map((c) => (
+              {group.rows.map((row) => (
                 <li
-                  key={c.id}
-                  className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                  key={`${row.member_id}-${row.ward_id}`}
+                  className="group flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div>
-                    <div className="font-medium">{c.name}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{row.callings.map((c) => c.name).join(" · ")}</div>
                     <div className="text-sm text-foreground/60">
-                      {c.members?.name ?? "Member"} · {c.wardName} · {normalizeStatusForUi(c.status) ?? c.status}
+                      {row.memberName} · {row.wardName} · {callingStatusLabel(row.callings)}
                     </div>
-                    {allowStatusAdvance ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        {WORKFLOW_STEPS.map((step, idx) => {
-                          const normalized = normalizeStatusForUi(c.status);
-                          const currentIdx = normalized ? WORKFLOW_STEPS.indexOf(normalized) : -1;
-                          const done = currentIdx >= idx;
-                          const nextClickable = allowStatusAdvance && currentIdx >= 0 && idx === currentIdx + 1;
-                          return (
-                            <button
-                              key={`${c.id}-${step}`}
-                              type="button"
-                              disabled={!nextClickable || !canMutate || busy === c.id}
-                              onClick={() => void advance(c.id, step)}
-                              className={`rounded-full border px-2 py-0.5 text-xs ${
-                                done
-                                  ? "border-green-700 bg-green-50 text-green-800"
-                                  : "border-border bg-background text-foreground/70"
-                              } ${nextClickable ? "hover:bg-surface-hover" : "cursor-default"}`}
-                              title={step}
-                            >
-                              {done ? "✓ " : ""}
-                              {step}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : null}
+                    {allowStatusAdvance
+                      ? row.callings.map((c) => (
+                          <div key={c.id} className="mt-2">
+                            {row.callings.length > 1 ? (
+                              <p className="mb-1 text-xs font-medium text-foreground/50">{c.name}</p>
+                            ) : null}
+                            <div className="flex flex-wrap items-center gap-2">
+                              {WORKFLOW_STEPS.map((step, idx) => {
+                                const normalized = normalizeStatusForUi(c.status);
+                                const currentIdx = normalized ? WORKFLOW_STEPS.indexOf(normalized) : -1;
+                                const done = currentIdx >= idx;
+                                const nextClickable =
+                                  allowStatusAdvance && currentIdx >= 0 && idx === currentIdx + 1;
+                                return (
+                                  <button
+                                    key={`${c.id}-${step}`}
+                                    type="button"
+                                    disabled={!nextClickable || !canMutate || busy === c.id}
+                                    onClick={() => void advance(c.id, step)}
+                                    className={`rounded-full border px-2 py-0.5 text-xs ${
+                                      done
+                                        ? "border-green-700 bg-green-50 text-green-800"
+                                        : "border-border bg-background text-foreground/70"
+                                    } ${nextClickable ? "hover:bg-surface-hover" : "cursor-default"}`}
+                                    title={step}
+                                  >
+                                    {done ? "✓ " : ""}
+                                    {step}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))
+                      : null}
                   </div>
-                  <div className="flex items-center gap-2">
-                    {allowDeleteProposed && c.status !== "Set Apart" ? (
-                      <button
-                        type="button"
-                        disabled={!canMutate || busy === c.id}
-                        onClick={() => void removeProposed(c.id)}
-                        className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-hover disabled:opacity-40"
-                      >
-                        Remove
-                      </button>
-                    ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {allowDeleteProposed
+                      ? row.callings.map((c) =>
+                          c.status !== "Set Apart" ? (
+                            <button
+                              key={c.id}
+                              type="button"
+                              disabled={!canMutate || busy === c.id}
+                              onClick={() => void removeProposed(c.id)}
+                              className={`rounded-lg border border-border px-3 py-2 text-sm hover:bg-red-500/10 hover:text-red-600 disabled:opacity-40 ${hoverRevealRemoveClassName}`}
+                              title={row.callings.length > 1 ? c.name : undefined}
+                            >
+                              {row.callings.length > 1 ? `Remove ${c.name}` : "Remove"}
+                            </button>
+                          ) : null,
+                        )
+                      : null}
                   </div>
                 </li>
               ))}

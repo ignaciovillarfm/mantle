@@ -1,6 +1,18 @@
 "use client";
 
 import { MemberSearchSelect } from "@/components/MemberSearchSelect";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { hoverRevealRemoveClassName } from "@/lib/hoverRevealRemove";
 import {
   isGuestSpeakerSlot,
   type SacramentFormLang,
@@ -9,19 +21,12 @@ import {
 } from "@/lib/sacramentProgram";
 import { useEffect, useState } from "react";
 
-const SELECT_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background py-0 pl-3 pr-10 text-sm leading-10 text-foreground disabled:opacity-50";
-const NOTE_INPUT_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none disabled:opacity-50";
-const TEXT_INPUT_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none";
-
 function t(lang: SacramentFormLang, en: string, es: string) {
   return lang === "es" ? es : en;
 }
 
 function FieldLabel({ lang, en, es }: { lang: SacramentFormLang; en: string; es: string }) {
-  return <span className="mb-1 block font-medium text-foreground">{t(lang, en, es)}</span>;
+  return <Label className="mb-1 block font-medium text-foreground">{t(lang, en, es)}</Label>;
 }
 
 function PencilIcon() {
@@ -106,17 +111,19 @@ export function SpeakerSlotCard({
   const slotLabelEs = `Discurso ${slot.position}`;
 
   return (
-    <div>
+    <div className="group">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="font-medium text-foreground">{t(lang, slotLabelEn, slotLabelEs)}</span>
         {canRemove && !showCompact ? (
-          <button
+          <Button
             type="button"
-            className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] hover:bg-surface-hover"
+            variant="outline"
+            size="sm"
+            className={`h-7 shrink-0 px-2 text-[11px] hover:bg-red-500/10 hover:text-red-600 ${hoverRevealRemoveClassName}`}
             onClick={onRemove}
           >
             {t(lang, "Remove", "Quitar")}
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -157,71 +164,74 @@ export function SpeakerSlotCard({
           </div>
         </div>
       ) : (
-        <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
+        <div className="space-y-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
               {guestMode ? (
                 <>
                   <FieldLabel lang={lang} en="Speaker" es="Orador" />
-                  <input
-                    type="text"
-                    className={TEXT_INPUT_CLASS}
+                  <Input
+                    className="mt-1"
                     placeholder={t(lang, "e.g. Elder Smith — High Council", "p. ej. Élder López — Alto consejo")}
                     value={slot.guest_name ?? ""}
                     onChange={(e) => patch({ guest_name: e.target.value, member_id: null })}
                   />
-                  <button
-                    type="button"
-                    className="mt-1.5 text-xs text-foreground/50 underline-offset-2 hover:text-foreground hover:underline"
-                    onClick={setWardMode}
-                  >
-                    {t(lang, "Back to ward member", "Volver a miembro del barrio")}
-                  </button>
                 </>
               ) : (
-                <>
-                  <FieldLabel lang={lang} en="Member" es="Miembro" />
-                  <MemberSearchSelect
-                    id={`sp-${slot.position}`}
-                    lang={lang}
-                    members={members}
-                    value={slot.member_id ?? null}
-                    onChange={(memberId) => {
-                      const prevMember = slot.member_id;
-                      onChange({
-                        ...slot,
-                        member_id: memberId,
-                        guest_name: null,
-                        ...(prevMember !== memberId
-                          ? {
-                              response_status: "pending",
-                              response_note: null,
-                              fulfilled: null,
-                            }
-                          : {}),
-                      });
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="mt-1.5 text-xs text-foreground/50 underline-offset-2 hover:text-foreground hover:underline"
-                    onClick={setGuestMode}
-                  >
-                    {t(lang, "Guest or stake speaker instead", "Invitado o de la estaca")}
-                  </button>
-                </>
+                <MemberSearchSelect
+                  id={`sp-${slot.position}`}
+                  lang={lang}
+                  members={members}
+                  className="mt-0"
+                  value={slot.member_id ?? null}
+                  onChange={(memberId) => {
+                    const prevMember = slot.member_id;
+                    onChange({
+                      ...slot,
+                      member_id: memberId,
+                      guest_name: null,
+                      ...(prevMember !== memberId
+                        ? {
+                            response_status: "pending",
+                            response_note: null,
+                            fulfilled: null,
+                          }
+                        : {}),
+                    });
+                  }}
+                />
               )}
             </div>
-            <div>
-              <FieldLabel lang={lang} en="Topic (optional)" es="Tema (opcional)" />
-              <input
-                type="text"
-                className={TEXT_INPUT_CLASS}
+            <div className="min-w-0 flex-1">
+              <Input
+                placeholder={t(lang, "Topic (optional)", "Tema (opcional)")}
                 value={slot.topic ?? ""}
                 onChange={(e) => patch({ topic: e.target.value || null })}
               />
             </div>
           </div>
+
+          {guestMode ? (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto px-0 text-xs"
+              onClick={setWardMode}
+            >
+              {t(lang, "Back to ward member", "Volver a miembro del barrio")}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto px-0 text-xs"
+              onClick={setGuestMode}
+            >
+              {t(lang, "Guest or stake speaker instead", "Invitado o de la estaca")}
+            </Button>
+          )}
 
           {slot.member_id ? (
             <div className="border-t border-border pt-3">
@@ -231,24 +241,26 @@ export function SpeakerSlotCard({
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <FieldLabel lang={lang} en="Response" es="Respuesta" />
-                  <select
-                    id={`sp-res-${slot.position}`}
-                    className={SELECT_CLASS}
+                  <Select
                     value={slot.response_status ?? "pending"}
-                    onChange={(e) =>
-                      patch({ response_status: e.target.value as TalkResponseStatus })
-                    }
+                    onValueChange={(v) => {
+                      if (v) patch({ response_status: v as TalkResponseStatus });
+                    }}
                   >
-                    <option value="pending">{t(lang, "Pending", "Pendiente")}</option>
-                    <option value="accepted">{t(lang, "Accepted", "Aceptó")}</option>
-                    <option value="declined">{t(lang, "Declined", "Declinó")}</option>
-                  </select>
+                    <SelectTrigger id={`sp-res-${slot.position}`} className="mt-1 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">{t(lang, "Pending", "Pendiente")}</SelectItem>
+                      <SelectItem value="accepted">{t(lang, "Accepted", "Aceptó")}</SelectItem>
+                      <SelectItem value="declined">{t(lang, "Declined", "Declinó")}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <FieldLabel lang={lang} en="Note (if declined)" es="Nota (si declinó)" />
-                  <input
-                    type="text"
-                    className={NOTE_INPUT_CLASS}
+                  <Input
+                    className="mt-1"
                     value={slot.response_note ?? ""}
                     onChange={(e) => patch({ response_note: e.target.value || null })}
                   />
@@ -260,46 +272,41 @@ export function SpeakerSlotCard({
           {hasSpeaker ? (
             <div className={slot.member_id ? "mt-0" : "border-t border-border pt-3"}>
               <FieldLabel lang={lang} en="Spoke that Sunday?" es="¿Discursó ese domingo?" />
-              <div className="mt-1 flex flex-wrap gap-2">
-                {(
-                  [
-                    { value: null, en: "Unknown", es: "Desconocido" },
-                    { value: true, en: "Yes", es: "Sí" },
-                    { value: false, en: "No", es: "No" },
-                  ] as const
-                ).map((opt) => {
-                  const active = slot.fulfilled === opt.value;
-                  return (
-                    <button
-                      key={String(opt.value)}
-                      type="button"
-                      className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                        active
-                          ? opt.value === true
-                            ? "border-green-600/40 bg-green-600/10 font-medium text-green-900 dark:text-green-200"
-                            : opt.value === false
-                              ? "border-amber-600/40 bg-amber-600/10 font-medium text-amber-900 dark:text-amber-200"
-                              : "border-foreground/30 bg-foreground/5 font-medium"
-                          : "border-border text-foreground/70 hover:bg-surface-hover"
-                      }`}
-                      onClick={() => patch({ fulfilled: opt.value })}
-                    >
-                      {t(lang, opt.en, opt.es)}
-                    </button>
-                  );
-                })}
-              </div>
+              <ToggleGroup
+                variant="outline"
+                className="mt-1 flex flex-wrap justify-start gap-1"
+                value={[slot.fulfilled === null ? "unknown" : slot.fulfilled ? "yes" : "no"]}
+                onValueChange={(v) => {
+                  const next = v[0];
+                  if (!next) return;
+                  patch({
+                    fulfilled: next === "unknown" ? null : next === "yes",
+                  });
+                }}
+              >
+                <ToggleGroupItem value="unknown" className="text-sm">
+                  {t(lang, "Unknown", "Desconocido")}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="yes" className="text-sm">
+                  {t(lang, "Yes", "Sí")}
+                </ToggleGroupItem>
+                <ToggleGroupItem value="no" className="text-sm">
+                  {t(lang, "No", "No")}
+                </ToggleGroupItem>
+              </ToggleGroup>
             </div>
           ) : null}
 
           {recorded ? (
-            <button
+            <Button
               type="button"
-              className="text-xs text-foreground/50 hover:text-foreground"
+              variant="link"
+              size="sm"
+              className="h-auto px-0 text-xs"
               onClick={() => setExpanded(false)}
             >
               {t(lang, "Done editing", "Listo")}
-            </button>
+            </Button>
           ) : null}
         </div>
       )}

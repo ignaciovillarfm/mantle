@@ -46,31 +46,7 @@ export default async function SacramentRolePoolSettingsPage({
   }));
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 pb-8">
-      <Link
-        href={`/sacrament?ward=${encodeURIComponent(wardId)}`}
-        className="inline-flex w-fit items-center gap-1.5 rounded-lg py-1.5 pr-2 text-sm text-foreground/70 transition-colors hover:bg-surface-hover hover:text-foreground"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-        <span>Back to sacrament</span>
-      </Link>
-
-      <header>
-        <h1 className="text-2xl font-semibold">Sacrament role members</h1>
-      </header>
-
+    <div className="mx-auto max-w-6xl space-y-6 pb-8 text-foreground">
       {wards.length > 1 ? (
         <div className="flex flex-wrap gap-2">
           {wards.map((w) => (
@@ -92,6 +68,7 @@ export default async function SacramentRolePoolSettingsPage({
       <SacramentRolePoolClient
         wardId={wardId}
         wardName={wardName}
+        sacramentHref={`/sacrament?ward=${encodeURIComponent(wardId)}`}
         members={(members ?? []).map((m) => ({ id: m.id as string, name: m.name as string }))}
         initialRolePool={rolePool}
         callingOptions={callingOptions}

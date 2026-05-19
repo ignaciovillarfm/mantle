@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  hoverRevealOnGroupClassName,
+  hoverRevealRemoveClassName,
+  removeIconMarkClassName,
+} from "@/lib/hoverRevealRemove";
+import { cn } from "@/lib/utils";
+import { GripVertical } from "lucide-react";
 import { dedupeMemberIds, type SacramentRoleKey } from "@/lib/sacrament/sacramentRoles";
 import { getReorderDestinationIndex } from "@atlaskit/pragmatic-drag-and-drop-hitbox/util/get-reorder-destination-index";
 import {
@@ -142,19 +149,6 @@ function memberIdsFromListDom(listEl: HTMLElement | null): string[] {
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 }
 
-function DragHandle() {
-  return (
-    <span
-      className="flex shrink-0 cursor-grab touch-none flex-col justify-center gap-0.5 px-1.5 text-foreground/35 active:cursor-grabbing"
-      aria-hidden
-    >
-      <span className="block h-0.5 w-3 rounded-full bg-current" />
-      <span className="block h-0.5 w-3 rounded-full bg-current" />
-      <span className="block h-0.5 w-3 rounded-full bg-current" />
-    </span>
-  );
-}
-
 function RolePoolMemberRow({
   role,
   memberId,
@@ -218,11 +212,20 @@ function RolePoolMemberRow({
     <li
       ref={setRef}
       data-pool-row={memberId}
-      className={`group relative flex h-10 cursor-grab touch-none items-center gap-1.5 rounded-lg border border-border/80 bg-background px-2 text-sm transition-[opacity,box-shadow] active:cursor-grabbing ${
+      className={`group relative flex h-10 cursor-grab touch-none items-center gap-0 rounded-lg border border-border/80 bg-background px-2 text-sm transition-[opacity,box-shadow,gap] group-hover:gap-1.5 group-focus-within:gap-1.5 active:cursor-grabbing ${
         isDragging ? "pointer-events-none opacity-0" : "shadow-sm"
       }`}
     >
-      <DragHandle />
+      <span
+        className={cn(
+          "flex w-0 shrink-0 items-center justify-center overflow-hidden text-foreground/45 transition-[width,opacity]",
+          hoverRevealOnGroupClassName,
+          "group-hover:w-4 group-focus-within:w-4",
+        )}
+        aria-hidden
+      >
+        <GripVertical className="size-4 shrink-0" strokeWidth={2} />
+      </span>
       <span className="min-w-0 flex-1 truncate py-2 pr-1">{name}</span>
       <button
         type="button"
@@ -233,13 +236,13 @@ function RolePoolMemberRow({
           onRemove();
         }}
         aria-label={removeLabel}
-        className={`absolute top-1/2 left-full z-20 ml-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background text-lg leading-none text-foreground/50 shadow-sm transition-opacity hover:border-red-300 hover:bg-red-500/10 hover:text-red-600 focus-visible:pointer-events-auto focus-visible:opacity-100 ${
-          isDragging
-            ? "pointer-events-none opacity-0"
-            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+        className={`absolute top-1/2 left-full z-20 ml-1.5 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-border/80 bg-background text-lg leading-none text-foreground/50 shadow-sm hover:border-red-300 hover:bg-red-500/10 hover:text-red-600 ${
+          isDragging ? "pointer-events-none opacity-0" : hoverRevealRemoveClassName
         }`}
       >
-        <span aria-hidden>×</span>
+        <span className={removeIconMarkClassName} aria-hidden>
+          ×
+        </span>
       </button>
     </li>
   );

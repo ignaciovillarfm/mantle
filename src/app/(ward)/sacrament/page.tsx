@@ -1,7 +1,5 @@
 import { SacramentClient } from "./SacramentClient";
-import { PastProgramsFallback } from "./PastProgramsFallback";
 import { PrefetchSacramentWeeks } from "./PrefetchSacramentWeeks";
-import { SacramentPastPrograms } from "./SacramentPastPrograms";
 import { loadSacramentPageState } from "./loadSacramentState";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
 import {
@@ -11,7 +9,6 @@ import {
   upcomingSacramentSunday,
 } from "@/lib/sacramentProgram";
 import { redirect } from "next/navigation";
-import { Suspense } from "react";
 
 export default async function SacramentPage({
   searchParams,
@@ -94,9 +91,6 @@ export default async function SacramentPage({
           next: initialNext,
         }}
       />
-      <Suspense fallback={<PastProgramsFallback />}>
-        <SacramentPastPrograms wardId={wardId} />
-      </Suspense>
     </>
   );
 }

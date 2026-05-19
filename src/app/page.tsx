@@ -1,9 +1,10 @@
+import { MantleLogo } from "@/components/MantleLogo";
 import Link from "next/link";
 
 export default function Home() {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-6">
-      <h1 className="text-3xl font-semibold tracking-tight">Mantle Ward</h1>
+      <MantleLogo priority />
       <p className="max-w-md text-center text-foreground/70">
         Sign in to access the dashboard and ward tools.
       </p>

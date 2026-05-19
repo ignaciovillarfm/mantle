@@ -1,15 +1,22 @@
 "use client";
 
-import { MemberSearchPanel } from "@/components/MemberSearchPanel";
-import type { MemberOption } from "@/lib/members/memberSearch";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { formControlClassName } from "@/lib/formControlStyles";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { filterMembersByQuery, type MemberOption } from "@/lib/members/memberSearch";
+import { cn } from "@/lib/utils";
+import { CheckIcon, ChevronDownIcon } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
 function t(lang: "en" | "es", en: string, es: string) {
   return lang === "es" ? es : en;
 }
-
-const DEFAULT_TRIGGER_CLASS =
-  "mt-1 flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 text-left text-sm text-foreground disabled:opacity-50";
 
 export function MemberSearchSelect({
   id,
@@ -32,11 +39,13 @@ export function MemberSearchSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const rootRef = useRef<HTMLDivElement>(null);
-  const listboxId = useId();
 
   const nameById = useMemo(() => new Map(members.map((m) => [m.id, m.name])), [members]);
-  const displayLabel = value ? (nameById.get(value) ?? "—") : (emptyLabel ?? t(lang, "— Select member —", "— Elegir miembro —"));
+  const displayLabel = value
+    ? (nameById.get(value) ?? "—")
+    : (emptyLabel ?? t(lang, "— Select member —", "— Elegir miembro —"));
+
+  const filtered = useMemo(() => filterMembersByQuery(members, search), [members, search]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -51,51 +60,59 @@ export function MemberSearchSelect({
     [close, onChange],
   );
 
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) close();
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [close, open]);
-
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setSearch("");
+      }}
+    >
+      <PopoverTrigger
         id={id}
         disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        className={className ?? DEFAULT_TRIGGER_CLASS}
-        onClick={() => {
-          if (disabled) return;
-          setOpen((prev) => !prev);
-        }}
+        className={cn(
+          formControlClassName,
+          "mt-1 flex h-10 w-full cursor-pointer items-center justify-between gap-2 border-solid px-3 py-0 font-normal",
+          "data-popup-open:border-primary data-popup-open:shadow-[var(--shadow-focus)]",
+          !value && "text-[var(--placeholder)]",
+          className,
+        )}
       >
-        <span className={value ? "truncate" : "truncate text-foreground/55"}>{displayLabel}</span>
-        <span className="shrink-0 text-foreground/40" aria-hidden>
-          ▾
-        </span>
-      </button>
-      {open ? (
-        <div
-          className="absolute left-0 right-0 z-20 mt-1 rounded-lg border border-border bg-surface shadow-lg"
-          id={listboxId}
-        >
-          <MemberSearchPanel
-            lang={lang}
-            members={members}
-            selectedId={value}
-            onSelect={select}
-            search={search}
-            onSearchChange={setSearch}
-            autoFocusSearch
+        <span className="truncate">{displayLabel}</span>
+        <ChevronDownIcon className="size-4 shrink-0 text-text-secondary" />
+      </PopoverTrigger>
+      <PopoverContent className="w-[min(100vw-2rem,24rem)] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder={t(lang, "Search by name…", "Buscar por nombre…")}
+            value={search}
+            onValueChange={setSearch}
           />
-        </div>
-      ) : null}
-    </div>
+          <CommandList>
+            <CommandEmpty>
+              {t(lang, "No members match your search.", "Ningún miembro coincide con la búsqueda.")}
+            </CommandEmpty>
+            <CommandItem
+              value="__none__"
+              onSelect={() => select(null)}
+            >
+              {t(lang, "— None —", "— Ninguno —")}
+              {!value ? <CheckIcon className="ml-auto size-4" /> : null}
+            </CommandItem>
+            {filtered.map((m) => (
+              <CommandItem
+                key={m.id}
+                value={`${m.name} ${m.id}`}
+                onSelect={() => select(m.id)}
+              >
+                <span className="truncate">{m.name}</span>
+                {value === m.id ? <CheckIcon className="ml-auto size-4" /> : null}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
