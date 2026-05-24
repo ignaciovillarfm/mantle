@@ -1,4 +1,21 @@
+import { appendFileSync } from "node:fs";
 import { createClient } from "@/lib/supabase/server";
+
+function agentDebugLog(
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Record<string, unknown>,
+) {
+  try {
+    appendFileSync(
+      "/Users/ignaciovillaramun/Mantle/.cursor/debug-839c0d.log",
+      `${JSON.stringify({ sessionId: "839c0d", hypothesisId, location, message, data, timestamp: Date.now() })}\n`,
+    );
+  } catch {
+    /* ignore */
+  }
+}
 import {
   formatLocalISODate,
   MAX_DISCOURSE_SLOTS,
@@ -272,6 +289,15 @@ export async function loadSacramentPageState(
 
   if (meetingRow) {
     const parsed = parseSacramentProgram(meetingRow.program);
+    agentDebugLog("D", "loadSacramentState.ts:meeting", "loaded meeting program from DB", {
+      wardId,
+      meetingDate,
+      announcementsLen: parsed.announcements?.length ?? -1,
+      rawProgramHasAnnouncementsKey:
+        meetingRow.program != null &&
+        typeof meetingRow.program === "object" &&
+        "announcements" in (meetingRow.program as object),
+    });
     const themeCol = (meetingRow.theme as string | null) ?? null;
     const meetingCore = {
       id: meetingRow.id as string,

@@ -1,4 +1,21 @@
+import { appendFileSync } from "node:fs";
 import { createClient } from "@/lib/supabase/server";
+
+function agentDebugLog(
+  hypothesisId: string,
+  location: string,
+  message: string,
+  data: Record<string, unknown>,
+) {
+  try {
+    appendFileSync(
+      "/Users/ignaciovillaramun/Mantle/.cursor/debug-839c0d.log",
+      `${JSON.stringify({ sessionId: "839c0d", hypothesisId, location, message, data, timestamp: Date.now() })}\n`,
+    );
+  } catch {
+    /* ignore */
+  }
+}
 import {
   isGuestSpeakerSlot,
   normalizeSpeakerSlots,
@@ -45,6 +62,12 @@ export async function persistSacramentMeeting(
     await assertWardAccess(input.wardId);
     const supabase = await createClient();
 
+    agentDebugLog("C", "persistSacramentMeeting.ts:pre-upsert", "persist input program", {
+      announcementsLen: input.program.announcements?.length ?? -1,
+      wardId: input.wardId,
+      date: input.date,
+    });
+
     const { data: upserted, error: upErr } = await supabase
       .from("sacrament_meetings")
       .upsert(
@@ -63,6 +86,11 @@ export async function persistSacramentMeeting(
       .select("id")
       .single();
 
+    agentDebugLog("C", "persistSacramentMeeting.ts:post-upsert", "upsert result", {
+      ok: !upErr && !!upserted?.id,
+      error: upErr?.message ?? null,
+      meetingId: upserted?.id ?? null,
+    });
     if (upErr) throw upErr;
     if (!upserted?.id) throw new Error("No meeting id after save");
 
@@ -145,6 +173,7 @@ export async function persistSacramentMeeting(
     }
 
     revalidatePath("/sacrament");
+    revalidatePath("/sacrament/print");
     revalidatePath("/members");
     return { ok: true, meetingId };
   } catch (e) {

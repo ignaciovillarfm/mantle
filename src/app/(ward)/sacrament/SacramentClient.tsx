@@ -206,35 +206,70 @@ function AnnouncementRowsEditor({
   lang: SacramentFormLang;
 }) {
   const [rows, setRows] = useState(() => rowsFromAnnouncementsValue(value));
-  const lastSyncedValueRef = useRef(value);
 
   useEffect(() => {
-    if (value === lastSyncedValueRef.current) return;
-    lastSyncedValueRef.current = value;
-    setRows(rowsFromAnnouncementsValue(value));
+    setRows((prev) => {
+      const serializedPrev = serializeAnnouncementRows(prev);
+      if (serializedPrev === value) return prev;
+      // #region agent log
+      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+        body: JSON.stringify({
+          sessionId: "839c0d",
+          hypothesisId: "A",
+          location: "SacramentClient.tsx:AnnouncementRowsEditor:valueSync",
+          message: "external value sync applied",
+          data: { valueLen: value.length, serializedPrevLen: serializedPrev.length },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      return rowsFromAnnouncementsValue(value);
+    });
   }, [value]);
 
-  useEffect(() => {
-    const serialized = serializeAnnouncementRows(rows);
-    if (serialized === lastSyncedValueRef.current) return;
-    lastSyncedValueRef.current = serialized;
-    onChange(serialized);
-  }, [rows, onChange]);
+  const commitRows = useCallback(
+    (nextRows: string[]) => {
+      const serialized = serializeAnnouncementRows(nextRows);
+      // #region agent log
+      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+        body: JSON.stringify({
+          sessionId: "839c0d",
+          hypothesisId: "A",
+          location: "SacramentClient.tsx:AnnouncementRowsEditor:commitRows",
+          message: "user committed announcement rows",
+          data: { rowCount: nextRows.length, serializedLen: serialized.length },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      setRows(nextRows);
+      onChange(serialized);
+    },
+    [onChange],
+  );
 
-  const updateRow = useCallback((index: number, text: string) => {
-    setRows((prev) => prev.map((row, i) => (i === index ? text : row)));
-  }, []);
+  const updateRow = useCallback(
+    (index: number, text: string) => {
+      commitRows(rows.map((row, i) => (i === index ? text : row)));
+    },
+    [rows, commitRows],
+  );
 
   const addRow = useCallback(() => {
-    setRows((prev) => [...prev, ""]);
-  }, []);
+    commitRows([...rows, ""]);
+  }, [rows, commitRows]);
 
-  const removeRow = useCallback((index: number) => {
-    setRows((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      return next.length > 0 ? next : [""];
-    });
-  }, []);
+  const removeRow = useCallback(
+    (index: number) => {
+      const next = rows.filter((_, i) => i !== index);
+      commitRows(next.length > 0 ? next : [""]);
+    },
+    [rows, commitRows],
+  );
 
   return (
     <div className="space-y-3">
@@ -475,6 +510,16 @@ export function SacramentClient({
   const localDraftRef = useRef<string>("");
   const routeKeyRef = useRef<string | null>(null);
   const didHydrateCurrentRouteRef = useRef(false);
+  const bundleRef = useRef(bundle);
+  bundleRef.current = bundle;
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  const formLangRef = useRef(formLang);
+  formLangRef.current = formLang;
+  const pageQueryKeyRef = useRef(pageQueryKey);
+  pageQueryKeyRef.current = pageQueryKey;
   const [formFieldsMounted, setFormFieldsMounted] = useState(false);
 
   useEffect(() => {
@@ -578,7 +623,30 @@ export function SacramentClient({
     }
     routeKeyRef.current = rk;
     const hasLocalUnsavedChanges = localDraftRef.current !== lastSavedRef.current;
-    if (didHydrateCurrentRouteRef.current && !navigated && hasLocalUnsavedChanges) return;
+    const hydrateSkipped = didHydrateCurrentRouteRef.current && !navigated;
+    // #region agent log
+    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+      body: JSON.stringify({
+        sessionId: "839c0d",
+        hypothesisId: "E",
+        location: "SacramentClient.tsx:hydrate",
+        message: "bundle hydrate effect",
+        data: {
+          navigated,
+          hydrateSkipped,
+          bundleAnnouncementsLen: bundle.meeting?.program.announcements?.length ?? -1,
+          hasLocalUnsavedChanges,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    if (hydrateSkipped) {
+      setAutosaveReady(true);
+      return;
+    }
 
     const m = bundle.meeting;
     const pool = bundle.rolePool;
@@ -623,7 +691,23 @@ export function SacramentClient({
   }, [bundle, effectiveMeetingDate, effectiveWardId]);
 
   useEffect(() => {
-    if (!autosaveReady || !bundle) return;
+    if (!autosaveReady || !bundleRef.current) {
+      // #region agent log
+      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+        body: JSON.stringify({
+          sessionId: "839c0d",
+          hypothesisId: "B",
+          location: "SacramentClient.tsx:autosave:gate",
+          message: "autosave blocked",
+          data: { autosaveReady, hasBundle: !!bundleRef.current },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      return;
+    }
 
     const current = serializeSacramentDraft({
       program,
@@ -642,6 +726,21 @@ export function SacramentClient({
       speakers,
     });
     if (current === lastSavedRef.current) return;
+
+    // #region agent log
+    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+      body: JSON.stringify({
+        sessionId: "839c0d",
+        hypothesisId: "B",
+        location: "SacramentClient.tsx:autosave:schedule",
+        message: "autosave debounce scheduled",
+        data: { announcementsLen: program.announcements?.length ?? 0 },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
     const t = window.setTimeout(() => {
       const next = serializeSacramentDraft({
@@ -676,6 +775,24 @@ export function SacramentClient({
             return s;
           }),
         };
+        // #region agent log
+        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+          body: JSON.stringify({
+            sessionId: "839c0d",
+            hypothesisId: "B",
+            location: "SacramentClient.tsx:autosave",
+            message: "autosave POST payload",
+            data: {
+              announcementsLen: programForSave.announcements?.length ?? -1,
+              wardId: effectiveWardId,
+              date: effectiveMeetingDate,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         const payload = {
           wardId: effectiveWardId,
           date: effectiveMeetingDate,
@@ -705,35 +822,52 @@ export function SacramentClient({
           | { ok: true; meetingId: string }
           | { ok: false; error: string };
         setSaving(false);
+        // #region agent log
+        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+          body: JSON.stringify({
+            sessionId: "839c0d",
+            hypothesisId: "B",
+            location: "SacramentClient.tsx:autosave:response",
+            message: "autosave response",
+            data: { httpOk: http.ok, resOk: res.ok, status: http.status },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         if (http.ok && res.ok) {
           lastSavedRef.current = next;
           setSaveSuccess(true);
-          toast.success(formT(formLang, { en: "Saved.", es: "Guardado." }));
+          toast.success(formT(formLangRef.current, { en: "Saved.", es: "Guardado." }));
           const prevBundle =
-            queryClient.getQueryData<SacramentPageBundle>(pageQueryKey) ?? bundle;
-          queryClient.setQueryData(
-            pageQueryKey,
-            mergeSacramentBundleAfterSave(prevBundle, {
-              meetingId: res.meetingId,
-              date: effectiveMeetingDate,
-              theme: payload.theme,
-              program: payload.program,
-              presiding_member_id: payload.presiding_member_id,
-              conducting_id: payload.conducting_id,
-              chorister_member_id: payload.chorister_member_id,
-              organist_member_id: payload.organist_member_id,
-              opening_prayer_member_id: payload.opening_prayer_member_id,
-              closing_prayer_member_id: payload.closing_prayer_member_id,
-              opening_prayer_response_status: payload.opening_prayer_response_status,
-              opening_prayer_response_note: payload.opening_prayer_response_note,
-              opening_prayer_fulfilled: payload.opening_prayer_fulfilled,
-              closing_prayer_response_status: payload.closing_prayer_response_status,
-              closing_prayer_response_note: payload.closing_prayer_response_note,
-              closing_prayer_fulfilled: payload.closing_prayer_fulfilled,
-              speakers: payload.speakers,
-            }),
-          );
-          router.refresh();
+            queryClientRef.current.getQueryData<SacramentPageBundle>(pageQueryKeyRef.current) ??
+            bundleRef.current;
+          if (prevBundle) {
+            queryClientRef.current.setQueryData(
+              pageQueryKeyRef.current,
+              mergeSacramentBundleAfterSave(prevBundle, {
+                meetingId: res.meetingId,
+                date: effectiveMeetingDate,
+                theme: payload.theme,
+                program: payload.program,
+                presiding_member_id: payload.presiding_member_id,
+                conducting_id: payload.conducting_id,
+                chorister_member_id: payload.chorister_member_id,
+                organist_member_id: payload.organist_member_id,
+                opening_prayer_member_id: payload.opening_prayer_member_id,
+                closing_prayer_member_id: payload.closing_prayer_member_id,
+                opening_prayer_response_status: payload.opening_prayer_response_status,
+                opening_prayer_response_note: payload.opening_prayer_response_note,
+                opening_prayer_fulfilled: payload.opening_prayer_fulfilled,
+                closing_prayer_response_status: payload.closing_prayer_response_status,
+                closing_prayer_response_note: payload.closing_prayer_response_note,
+                closing_prayer_fulfilled: payload.closing_prayer_fulfilled,
+                speakers: payload.speakers,
+              }),
+            );
+          }
+          routerRef.current.refresh();
         } else {
           let msg = `Save failed (${http.status})`;
           if (typeof res === "object" && res !== null && "error" in res && typeof (res as { error: unknown }).error === "string") {
@@ -763,11 +897,6 @@ export function SacramentClient({
     speakers,
     effectiveWardId,
     effectiveMeetingDate,
-    pageQueryKey,
-    bundle,
-    queryClient,
-    router,
-    formLang,
   ]);
 
   useEffect(() => {
@@ -1298,8 +1427,8 @@ export function SacramentClient({
 
           <SacramentSection
             title={formT(formLang, {
-              en: "Announcements and initial worship",
-              es: "Anuncios y culto inicial",
+              en: "Announcements and opening hymn",
+              es: "Anuncios y himno inicial",
             })}
           >
             <div className="grid gap-4">
