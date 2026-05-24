@@ -229,9 +229,20 @@ export default async function SacramentPrintPage({
   );
 
   return (
-    <main className="mx-auto max-w-[860px] bg-white px-6 py-6 text-black print:max-w-none print:px-4 print:py-3">
+    <main className="sacrament-print mx-auto max-w-[860px] bg-white px-6 py-6 text-black print:max-w-none print:px-4 print:py-3">
       <PrintDocumentTitle title={documentTitle} />
       <style>{`
+        /* Fixed ink-on-paper colors — never inherit app theme (e.g. light headings on dark theme). */
+        .sacrament-print {
+          background: #fff !important;
+          color: #000 !important;
+        }
+        .sacrament-print :where(h1, h2, h3, h4, p, span, td, th, div) {
+          color: #000 !important;
+        }
+        .sacrament-print .print-pause-divider span {
+          color: #666 !important;
+        }
         @media print {
           @page { size: Letter; margin: 10mm; }
           .no-print { display: none !important; }
@@ -249,6 +260,13 @@ export default async function SacramentPrintPage({
             max-width: none !important;
             width: 100% !important;
             margin: 0 !important;
+            background: #fff !important;
+            color: #000 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          main :where(h1, h2, h3, h4, p, span, td, th) {
+            color: #000 !important;
           }
         }
         .print-page-back {
@@ -273,9 +291,11 @@ export default async function SacramentPrintPage({
       </div>
 
       <section className="print-tight text-[15px]">
-        <header className="mb-2 text-center">
-          <h1 className="text-[22px] font-semibold uppercase leading-snug tracking-wide">{printTitleLine1}</h1>
-          <p className="mt-1 text-[15px] font-medium leading-snug">{printTitleLine2}</p>
+        <header className="mb-2 text-center text-black">
+          <h1 className="text-[22px] font-semibold uppercase leading-snug tracking-wide text-black">
+            {printTitleLine1}
+          </h1>
+          <p className="mt-1 text-[15px] font-medium leading-snug text-black">{printTitleLine2}</p>
         </header>
 
         <div className="print-page-front flex flex-col gap-2">
@@ -396,7 +416,7 @@ export default async function SacramentPrintPage({
                   {sacramentMeetingKindNotice(meetingProgramKind, lang)}
                 </p>
                 {testimonyMessageLines ? (
-                  <div className="border-t border-border/60 pt-2 text-[13px] leading-snug">
+                  <div className="border-t border-neutral-300 pt-2 text-[13px] leading-snug text-black">
                     {testimonyMessageLines.attribution ? (
                       <p className="font-medium">{testimonyMessageLines.attribution}</p>
                     ) : null}

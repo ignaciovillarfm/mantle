@@ -1,4 +1,6 @@
 import { MantleLogo } from "@/components/MantleLogo";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 export default function Home() {
@@ -10,7 +12,10 @@ export default function Home() {
       </p>
       <Link
         href="/login"
-        className="rounded-xl bg-accent px-6 py-3 text-sm font-medium text-white shadow-lg shadow-accent/25 transition hover:bg-accent-muted"
+        className={cn(
+          buttonVariants({ variant: "default" }),
+          "h-auto rounded-xl px-6 py-3 shadow-lg shadow-primary/20",
+        )}
       >
         Sign in
       </Link>
