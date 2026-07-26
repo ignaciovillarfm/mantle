@@ -443,6 +443,7 @@ export function AddWardBusinessSectionModal({
           id: i === 0 ? rowId : newWardBusinessReleaseRow().id,
           member_id: memberId,
           calling_position_id: c.callingPositionId,
+          link_group_id: null,
         }));
         const next = [...f.releaseRows];
         next.splice(idx, 1, ...toAdd);
