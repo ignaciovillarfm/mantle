@@ -1,12 +1,13 @@
 import { MantleLogo } from "@/components/MantleLogo";
+import { BishopricNavDropdown } from "@/components/BishopricNavDropdown";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
 import { userDisplayNameFromAuth, userInitialsFromDisplayName } from "@/lib/userDisplayName";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 
 const links = [
-  { href: "/dashboard", label: "Organizations" },
   { href: "/members", label: "Members" },
+  { href: "/calendar", label: "Calendar" },
   { href: "/sacrament", label: "Sacrament" },
   { href: "/callings", label: "Callings" },
 ];
@@ -42,7 +43,7 @@ export async function AppNav() {
     <nav className="border-b border-border bg-surface/80 backdrop-blur">
       <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="flex min-w-0 shrink-0 items-center gap-2 sm:max-w-[14rem]">
-          <Link href="/dashboard" className="shrink-0" aria-label="Mantle home">
+          <Link href="/bishopric/organization" className="shrink-0" aria-label="Mantle home">
             <MantleLogo variant="mark" />
           </Link>
           <span
@@ -54,6 +55,7 @@ export async function AppNav() {
         </div>
 
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:justify-center">
+          <BishopricNavDropdown />
           {links.map((l) => (
             <Link
               key={l.href}

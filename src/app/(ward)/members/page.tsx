@@ -1,4 +1,5 @@
 import { AddMemberModal } from "./AddMemberModal";
+import { MembersDirectoryClient, type MembersDirectoryRow } from "./MembersDirectoryClient";
 import { buildMemberSacramentRollups } from "@/lib/members/sacramentEngagement";
 import { fetchSacramentParticipationAssignmentLog } from "@/lib/members/sacramentParticipationLog";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
@@ -65,11 +66,24 @@ export default async function MembersPage() {
   const participationLog =
     wardIds.length > 0 ? await fetchSacramentParticipationAssignmentLog(supabase, wardIds) : [];
 
-  const grouped = new Map<string, Record<string, unknown>[]>();
+  const grouped = new Map<string, MembersDirectoryRow[]>();
   for (const m of members ?? []) {
     const ward = (m.wards as { name?: string } | null)?.name ?? "Unknown Ward";
+    const id = m.id as string;
+    const r = rollups.get(id);
     const arr = grouped.get(ward) ?? [];
-    arr.push(m as Record<string, unknown>);
+    arr.push({
+      id,
+      name: m.name as string,
+      is_youth: Boolean(m.is_youth),
+      lastTalkSunday: r?.lastTalkSunday ?? null,
+      lastTalkNote: r?.lastTalkNote ?? null,
+      lastTalkDelivered: r?.lastTalkDelivered ?? null,
+      lastPrayerSunday: r?.lastPrayerSunday ?? null,
+      lastPrayerRole: formatPrayerRole(r?.lastPrayerRole ?? null),
+      lastPrayerNote: r?.lastPrayerNote ?? null,
+      lastPrayerFulfilled: r?.lastPrayerFulfilled ?? null,
+    });
     grouped.set(ward, arr);
   }
 
@@ -101,81 +115,7 @@ export default async function MembersPage() {
       </header>
 
       {Array.from(grouped.entries()).map(([wardName, wardMembers]) => (
-        <section key={wardName} className="rounded-xl border border-border bg-surface">
-          <h2 className="border-b border-border px-4 py-3 text-sm font-semibold uppercase tracking-wide text-foreground/60">
-            {wardName}
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-border text-foreground/60">
-                  <th className="px-4 py-2 font-medium">Name</th>
-                  <th
-                    className="px-4 py-2 font-medium"
-                    title="Sacrament meeting date for their most recent assigned discourse (speaker slot)"
-                  >
-                    Last talk assignment
-                  </th>
-                  <th className="px-4 py-2 font-medium" title="Pastoral note tied to that talk assignment">
-                    Talk notes
-                  </th>
-                  <th className="px-4 py-2 font-medium" title="Recorded on Sacrament: did they speak that Sunday?">
-                    Spoke that day
-                  </th>
-                  <th
-                    className="px-4 py-2 font-medium"
-                    title="Sacrament meeting date for their most recent assigned opening or closing prayer"
-                  >
-                    Last prayer assignment
-                  </th>
-                  <th className="px-4 py-2 font-medium">Opening / closing</th>
-                  <th className="px-4 py-2 font-medium" title="Pastoral note tied to that prayer assignment">
-                    Prayer notes
-                  </th>
-                  <th className="px-4 py-2 font-medium" title="Recorded on Sacrament: did they offer the prayer that Sunday?">
-                    Prayed that day
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {wardMembers.map((m) => {
-                  const id = m.id as string;
-                  const r = rollups.get(id);
-                  return (
-                    <tr key={id} className="align-top">
-                      <td className="px-4 py-3 font-medium">
-                        {m.name as string}
-                        {m.is_youth ? (
-                          <span className="ml-1 text-foreground/50">· youth</span>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 text-foreground/80">{r?.lastTalkSunday ?? "—"}</td>
-                      <td className="max-w-[180px] px-4 py-3 text-foreground/80" title={r?.lastTalkNote ?? undefined}>
-                        {truncate(r?.lastTalkNote ?? null, 72)}
-                      </td>
-                      <td className="px-4 py-3 text-foreground/80">
-                        {formatDelivered(r?.lastTalkDelivered ?? null)}
-                      </td>
-                      <td className="px-4 py-3 text-foreground/80">{r?.lastPrayerSunday ?? "—"}</td>
-                      <td className="px-4 py-3 text-foreground/80">
-                        {formatPrayerRole(r?.lastPrayerRole ?? null)}
-                      </td>
-                      <td
-                        className="max-w-[180px] px-4 py-3 text-foreground/80"
-                        title={r?.lastPrayerNote ?? undefined}
-                      >
-                        {truncate(r?.lastPrayerNote ?? null, 72)}
-                      </td>
-                      <td className="px-4 py-3 text-foreground/80">
-                        {formatDelivered(r?.lastPrayerFulfilled ?? null)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <MembersDirectoryClient key={wardName} wardName={wardName} members={wardMembers} />
       ))}
       {(members ?? []).length === 0 && (
         <div className="rounded-xl border border-border bg-surface px-4 py-8 text-center text-foreground/50">

@@ -1,21 +1,5 @@
-import { appendFileSync } from "node:fs";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-
-function agentDebugLog(
-  hypothesisId: string,
-  location: string,
-  message: string,
-  data: Record<string, unknown>,
-) {
-  try {
-    appendFileSync(
-      "/Users/ignaciovillaramun/Mantle/.cursor/debug-839c0d.log",
-      `${JSON.stringify({ sessionId: "839c0d", hypothesisId, location, message, data, timestamp: Date.now() })}\n`,
-    );
-  } catch {
-    /* ignore */
-  }
-}
 import {
   formatLocalISODate,
   MAX_DISCOURSE_SLOTS,
@@ -34,7 +18,6 @@ import {
 } from "@/lib/sacramentTestimonyMessages";
 import { inferCallingGroup, type CallingGroupKey } from "@/lib/callings/groupCallingOptions";
 import {
-  EMPTY_SACRAMENT_ROLE_POOL,
   SACRAMENT_ROLE_KEYS,
   type SacramentRoleKey,
   type SacramentRolePool,
@@ -90,6 +73,18 @@ export type LeadershipSuggestions = {
   organistIds: string[];
 };
 
+/** Past speakers suggested when assigning discourses (have given talks before). */
+export type SpeakerTalkSuggestion = {
+  memberId: string;
+  name: string;
+  lastTalkDate: string | null;
+};
+
+export type MemberActiveCallingMap = Record<
+  string,
+  { callingPositionId: string; title: string }[]
+>;
+
 export type { SacramentRolePool, SacramentRoleKey };
 export { SACRAMENT_ROLE_KEYS };
 
@@ -102,6 +97,24 @@ async function assertWardAccess(wardId: string): Promise<void> {
   }
 }
 
+function buildRolePool(
+  rows: { role_key: string; member_id: string }[] | null,
+): SacramentRolePool {
+  const pool: SacramentRolePool = {
+    presiding: [],
+    conducting: [],
+    chorister: [],
+    organist: [],
+  };
+  for (const row of rows ?? []) {
+    const key = row.role_key as SacramentRoleKey;
+    if (!SACRAMENT_ROLE_KEYS.includes(key)) continue;
+    const memberId = row.member_id;
+    if (!pool[key].includes(memberId)) pool[key].push(memberId);
+  }
+  return pool;
+}
+
 export async function loadSacramentRolePool(wardId: string): Promise<SacramentRolePool> {
   await assertWardAccess(wardId);
   const supabase = await createClient();
@@ -111,15 +124,156 @@ export async function loadSacramentRolePool(wardId: string): Promise<SacramentRo
     .eq("ward_id", wardId)
     .order("sort_order", { ascending: true });
 
-  const pool: SacramentRolePool = { ...EMPTY_SACRAMENT_ROLE_POOL };
-  for (const row of rows ?? []) {
-    const key = row.role_key as SacramentRoleKey;
-    if (!SACRAMENT_ROLE_KEYS.includes(key)) continue;
-    const memberId = row.member_id as string;
-    if (!pool[key].includes(memberId)) pool[key].push(memberId);
-  }
-  return pool;
+  return buildRolePool((rows ?? []) as { role_key: string; member_id: string }[]);
 }
+
+const EMPTY_SUGGESTIONS: LeadershipSuggestions = {
+  presidingIds: [],
+  conductingIds: [],
+  choristerIds: [],
+  organistIds: [],
+};
+
+type SacramentWardCatalog = {
+  members: MemberOption[];
+  callingPositions: CallingPositionOption[];
+  sectionTemplates: SectionTemplateMap;
+  suggestions: LeadershipSuggestions;
+  rolePool: SacramentRolePool;
+  memberActiveCallings: MemberActiveCallingMap;
+  speakerTalkSuggestions: SpeakerTalkSuggestion[];
+};
+
+/** Ward-scoped catalog shared across current/prev/next week loads in one RSC request. */
+const loadSacramentWardCatalog = cache(async (wardId: string): Promise<SacramentWardCatalog> => {
+  await assertWardAccess(wardId);
+  const supabase = await createClient();
+
+  const [membersRes, positionsRes, templatesRes, rolePoolRes, callingsRes, priorTalksRes] =
+    await Promise.all([
+    supabase.from("members").select("id, name, last_pulpit_date").eq("ward_id", wardId).order("name"),
+    supabase
+      .from("calling_positions")
+      .select("id, title, sort_order")
+      .eq("ward_id", wardId)
+      .order("sort_order", { ascending: true })
+      .order("title", { ascending: true }),
+    supabase.from("sacrament_section_templates").select("template_key, lang, body"),
+    supabase
+      .from("sacrament_role_pool_members")
+      .select("role_key, member_id, sort_order")
+      .eq("ward_id", wardId)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("callings")
+      .select("member_id, calling_position_id, name")
+      .eq("ward_id", wardId)
+      .eq("status", "Set Apart")
+      .not("member_id", "is", null)
+      .not("calling_position_id", "is", null),
+    supabase
+      .from("sacrament_participations")
+      .select("member_id, sacrament_meetings!inner(date, ward_id)")
+      .eq("sacrament_meetings.ward_id", wardId)
+      .like("slot", "discourse_%")
+      .not("member_id", "is", null)
+      .limit(400),
+  ]);
+
+  const members = (membersRes.data ?? []).map((r) => ({
+    id: r.id as string,
+    name: r.name as string,
+  }));
+
+  const basePositions = (positionsRes.data ?? []).map((r) => ({
+    id: r.id as string,
+    titleEn: r.title as string,
+  }));
+  const basePositionIds = basePositions.map((p) => p.id);
+
+  let titleEsById = new Map<string, string>();
+  if (basePositionIds.length > 0) {
+    const { data: trRows } = await supabase
+      .from("calling_position_translations")
+      .select("calling_position_id, locale, title")
+      .eq("locale", "es")
+      .in("calling_position_id", basePositionIds);
+    titleEsById = new Map(
+      (trRows ?? []).map((r) => [r.calling_position_id as string, r.title as string]),
+    );
+  }
+
+  const callingPositions = basePositions.map((p) => ({
+    id: p.id,
+    titleEn: p.titleEn,
+    titleEs: titleEsById.get(p.id)?.trim() || p.titleEn,
+    groupKey: inferCallingGroup(p.titleEn),
+  }));
+
+  const sectionTemplates: SectionTemplateMap = {};
+  for (const row of templatesRes.data ?? []) {
+    const key = row.template_key as string;
+    const lang = row.lang as "en" | "es";
+    const body = row.body as string;
+    sectionTemplates[key] = { ...(sectionTemplates[key] ?? {}), [lang]: body };
+  }
+
+  const memberActiveCallings: MemberActiveCallingMap = {};
+  for (const row of callingsRes.data ?? []) {
+    const mid = row.member_id as string | null;
+    const pid = row.calling_position_id as string | null;
+    if (!mid || !pid) continue;
+    const list = memberActiveCallings[mid] ?? [];
+    if (!list.some((c) => c.callingPositionId === pid)) {
+      list.push({ callingPositionId: pid, title: (row.name as string) ?? "" });
+      memberActiveCallings[mid] = list;
+    }
+  }
+
+  const lastTalkByMember = new Map<string, string>();
+  for (const row of priorTalksRes.data ?? []) {
+    const mid = row.member_id as string | null;
+    if (!mid) continue;
+    const meeting = row.sacrament_meetings as { date?: string } | { date?: string }[] | null;
+    const date = Array.isArray(meeting) ? meeting[0]?.date : meeting?.date;
+    if (typeof date !== "string" || !date) continue;
+    const existing = lastTalkByMember.get(mid);
+    if (!existing || date > existing) lastTalkByMember.set(mid, date);
+  }
+  for (const r of membersRes.data ?? []) {
+    const mid = r.id as string;
+    const lastPulpit = r.last_pulpit_date as string | null;
+    if (!lastPulpit) continue;
+    const existing = lastTalkByMember.get(mid);
+    if (!existing || lastPulpit > existing) lastTalkByMember.set(mid, lastPulpit);
+  }
+
+  const nameById = new Map(members.map((m) => [m.id, m.name]));
+  const speakerTalkSuggestions: SpeakerTalkSuggestion[] = [...lastTalkByMember.entries()]
+    .map(([memberId, lastTalkDate]) => ({
+      memberId,
+      name: nameById.get(memberId) ?? "",
+      lastTalkDate,
+    }))
+    .filter((s) => s.name)
+    .sort((a, b) => {
+      const da = a.lastTalkDate ?? "";
+      const db = b.lastTalkDate ?? "";
+      if (da !== db) return da < db ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 24);
+
+  return {
+    members,
+    callingPositions,
+    sectionTemplates,
+    suggestions: EMPTY_SUGGESTIONS,
+    rolePool: buildRolePool((rolePoolRes.data ?? []) as { role_key: string; member_id: string }[]),
+    memberActiveCallings,
+    speakerTalkSuggestions,
+  };
+});
 
 type ParticipationRow = {
   slot: string;
@@ -201,6 +355,45 @@ function mergeParticipationsIntoBundle(
   return { meeting, speakers };
 }
 
+export async function loadPreviousSacramentSnapshot(
+  wardId: string,
+  meetingDate: string,
+): Promise<PreviousSacramentSnapshot | null> {
+  await assertWardAccess(wardId);
+  const supabase = await createClient();
+  const { data: prevMeeting } = await supabase
+    .from("sacrament_meetings")
+    .select(
+      "id, theme, program, presiding_member_id, conducting_id, chorister_member_id, organist_member_id",
+    )
+    .eq("ward_id", wardId)
+    .lt("date", meetingDate)
+    .order("date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!prevMeeting) return null;
+
+  const { data: prevPartRows } = await supabase
+    .from("sacrament_participations")
+    .select("slot, member_id")
+    .eq("meeting_id", prevMeeting.id as string);
+  const prevBySlot = new Map(
+    (prevPartRows ?? []).map((p) => [p.slot as string, p.member_id as string | null]),
+  );
+
+  return {
+    theme: (prevMeeting.theme as string | null) ?? null,
+    program: parseSacramentProgram(prevMeeting.program),
+    presiding_member_id: (prevMeeting.presiding_member_id as string | null) ?? null,
+    conducting_id: (prevMeeting.conducting_id as string | null) ?? null,
+    chorister_member_id: (prevMeeting.chorister_member_id as string | null) ?? null,
+    organist_member_id: (prevMeeting.organist_member_id as string | null) ?? null,
+    opening_prayer_member_id: (prevBySlot.get("opening_prayer") as string | null) ?? null,
+    closing_prayer_member_id: (prevBySlot.get("closing_prayer") as string | null) ?? null,
+  };
+}
+
 export async function loadSacramentPageState(
   wardId: string,
   meetingDate: string,
@@ -210,6 +403,8 @@ export async function loadSacramentPageState(
   sectionTemplates: SectionTemplateMap;
   suggestions: LeadershipSuggestions;
   rolePool: SacramentRolePool;
+  memberActiveCallings: MemberActiveCallingMap;
+  speakerTalkSuggestions: SpeakerTalkSuggestion[];
   meeting: SacramentMeetingState | null;
   speakers: SpeakerRowState[];
   previous: PreviousSacramentSnapshot | null;
@@ -220,84 +415,36 @@ export async function loadSacramentPageState(
 
   const meetingSelect =
     "id, date, theme, program, presiding_member_id, conducting_id, chorister_member_id, organist_member_id";
-  const prevSelect =
-    "id, theme, program, presiding_member_id, conducting_id, chorister_member_id, organist_member_id";
 
-  const [membersRes, meetingRes, prevRes, positionsRes, rolePool] = await Promise.all([
-    supabase.from("members").select("id, name").eq("ward_id", wardId).order("name"),
-    supabase.from("sacrament_meetings").select(meetingSelect).eq("ward_id", wardId).eq("date", meetingDate).maybeSingle(),
+  const testimonyCutoff = (() => {
+    const d = parseLocalDateFromISO(meetingDate);
+    d.setMonth(d.getMonth() - 2);
+    return formatLocalISODate(d);
+  })();
+
+  const [catalog, meetingRes, recentForTestimony] = await Promise.all([
+    loadSacramentWardCatalog(wardId),
     supabase
       .from("sacrament_meetings")
-      .select(prevSelect)
+      .select(meetingSelect)
       .eq("ward_id", wardId)
-      .lt("date", meetingDate)
-      .order("date", { ascending: false })
-      .limit(1)
+      .eq("date", meetingDate)
       .maybeSingle(),
     supabase
-      .from("calling_positions")
-      .select("id, title, sort_order")
+      .from("sacrament_meetings")
+      .select("date, program")
       .eq("ward_id", wardId)
-      .order("sort_order", { ascending: true })
-      .order("title", { ascending: true }),
-    loadSacramentRolePool(wardId),
+      .gte("date", testimonyCutoff)
+      .lt("date", meetingDate)
+      .order("date", { ascending: false }),
   ]);
-
-  const members = (membersRes.data ?? []).map((r) => ({
-    id: r.id as string,
-    name: r.name as string,
-  }));
-
-  const basePositions = (positionsRes.data ?? []).map((r) => ({
-    id: r.id as string,
-    titleEn: r.title as string,
-  }));
-  const basePositionIds = basePositions.map((p) => p.id);
-  let titleEsById = new Map<string, string>();
-  if (basePositionIds.length > 0) {
-    const { data: trRows } = await supabase
-      .from("calling_position_translations")
-      .select("calling_position_id, locale, title")
-      .eq("locale", "es")
-      .in("calling_position_id", basePositionIds);
-    titleEsById = new Map(
-      (trRows ?? []).map((r) => [r.calling_position_id as string, r.title as string]),
-    );
-  }
-  const callingPositions = basePositions.map((p) => ({
-    id: p.id,
-    titleEn: p.titleEn,
-    titleEs: titleEsById.get(p.id)?.trim() || p.titleEn,
-    groupKey: inferCallingGroup(p.titleEn),
-  }));
-  const { data: templateRows } = await supabase
-    .from("sacrament_section_templates")
-    .select("template_key, lang, body");
-  const sectionTemplates: SectionTemplateMap = {};
-  for (const row of templateRows ?? []) {
-    const key = row.template_key as string;
-    const lang = row.lang as "en" | "es";
-    const body = row.body as string;
-    sectionTemplates[key] = { ...(sectionTemplates[key] ?? {}), [lang]: body };
-  }
-
-  const meetingRow = meetingRes.data;
-  const prevMeeting = prevRes.data;
 
   let speakers: SpeakerRowState[] = [];
   let meeting: SacramentMeetingState | null = null;
 
+  const meetingRow = meetingRes.data;
   if (meetingRow) {
     const parsed = parseSacramentProgram(meetingRow.program);
-    agentDebugLog("D", "loadSacramentState.ts:meeting", "loaded meeting program from DB", {
-      wardId,
-      meetingDate,
-      announcementsLen: parsed.announcements?.length ?? -1,
-      rawProgramHasAnnouncementsKey:
-        meetingRow.program != null &&
-        typeof meetingRow.program === "object" &&
-        "announcements" in (meetingRow.program as object),
-    });
     const themeCol = (meetingRow.theme as string | null) ?? null;
     const meetingCore = {
       id: meetingRow.id as string,
@@ -323,108 +470,15 @@ export async function loadSacramentPageState(
     speakers = merged.speakers;
   }
 
-  let previous: PreviousSacramentSnapshot | null = null;
-  if (prevMeeting) {
-    const prevId = prevMeeting.id as string;
-    const { data: prevPartRows } = await supabase
-      .from("sacrament_participations")
-      .select("slot, member_id")
-      .eq("meeting_id", prevId);
-    const prevBySlot = new Map((prevPartRows ?? []).map((p) => [p.slot as string, p.member_id as string | null]));
-
-    previous = {
-      theme: (prevMeeting.theme as string | null) ?? null,
-      program: parseSacramentProgram(prevMeeting.program),
-      presiding_member_id: (prevMeeting.presiding_member_id as string | null) ?? null,
-      conducting_id: (prevMeeting.conducting_id as string | null) ?? null,
-      chorister_member_id: (prevMeeting.chorister_member_id as string | null) ?? null,
-      organist_member_id: (prevMeeting.organist_member_id as string | null) ?? null,
-      opening_prayer_member_id: (prevBySlot.get("opening_prayer") as string | null) ?? null,
-      closing_prayer_member_id: (prevBySlot.get("closing_prayer") as string | null) ?? null,
-    };
-  }
-
-  const { data: callingsRows } = await supabase
-    .from("callings")
-    .select("name, member_id")
-    .eq("ward_id", wardId)
-    .eq("status", "Set Apart")
-    .not("member_id", "is", null);
-
-  const pickIds = (matchers: RegExp[]): string[] => {
-    const ids = new Set<string>();
-    for (const row of (callingsRows ?? []) as { name: string; member_id: string | null }[]) {
-      if (!row.member_id) continue;
-      const n = row.name.toLowerCase();
-      if (matchers.some((r) => r.test(n))) ids.add(row.member_id);
-    }
-    return [...ids];
-  };
-
-  const bishopricMatchers = [
-    /\bbishop\b/,
-    /first counselor in the bishopric/,
-    /second counselor in the bishopric/,
-  ];
-  const authorizedConductingFallbackMatchers = [
-    /stake president/,
-    /first counselor in the stake presidency/,
-    /second counselor in the stake presidency/,
-    /high councilor/,
-    /high councillor/,
-    /melchizedek priesthood/,
-    /authorized priesthood holder/,
-  ];
-
-  const testimonyCutoff = (() => {
-    const d = parseLocalDateFromISO(meetingDate);
-    d.setMonth(d.getMonth() - 2);
-    return formatLocalISODate(d);
-  })();
-  const { data: recentForTestimony } = await supabase
-    .from("sacrament_meetings")
-    .select("date, program")
-    .eq("ward_id", wardId)
-    .gte("date", testimonyCutoff)
-    .lt("date", meetingDate)
-    .order("date", { ascending: false });
   const testimonyMessageUsage = extractTestimonyUsageFromMeetings(
-    (recentForTestimony ?? []) as { date: string; program: unknown }[],
+    (recentForTestimony.data ?? []) as { date: string; program: unknown }[],
   );
 
-  const suggestions: LeadershipSuggestions = {
-    presidingIds: pickIds(bishopricMatchers),
-    conductingIds: pickIds([
-      ...bishopricMatchers,
-      ...authorizedConductingFallbackMatchers,
-    ]),
-    choristerIds: pickIds([
-      /music leader/,
-      /music director/,
-      /music chairman/,
-      /music adviser/,
-      /choir director/,
-      /chorister/,
-    ]),
-    organistIds: pickIds([
-      /ward organist/,
-      /ward pianist/,
-      /primary pianist/,
-      /choir accompanist/,
-      /organist/,
-      /pianist/,
-    ]),
-  };
-
   return {
-    members,
-    callingPositions,
-    sectionTemplates,
-    suggestions,
-    rolePool,
+    ...catalog,
     meeting,
     speakers,
-    previous,
+    previous: null,
     testimonyMessageUsage,
   };
 }

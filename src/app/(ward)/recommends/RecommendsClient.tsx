@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import { useCachedEdgeData } from "@/hooks/useCachedEdgeData";
 
 type Row = {
@@ -25,7 +26,16 @@ export function RecommendsClient() {
       {fromCache && (
         <p className="text-sm text-foreground/50">Showing cached data.</p>
       )}
-      {loading && <p className="text-foreground/60">Loading…</p>}
+      {loading && !data ? (
+        <ul className="divide-y divide-border rounded-xl border border-border bg-surface">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <li key={i} className="space-y-2 px-4 py-3">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-56" />
+            </li>
+          ))}
+        </ul>
+      ) : (
       <ul className="divide-y divide-border rounded-xl border border-border bg-surface">
         {(data?.recommends ?? []).map((r, i) => (
           <li key={i} className="px-4 py-3">
@@ -44,6 +54,7 @@ export function RecommendsClient() {
           </li>
         )}
       </ul>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { groupCallingOptions } from "@/lib/callings/groupCallingOptions";
+import { CreateCallingPositionFields } from "@/app/(ward)/sacrament/CreateCallingPositionFields";
 
 export type CallingPresetOption = { id: string; ward_id: string; title: string; sort_order: number };
 export type CallingMemberOption = { id: string; ward_id: string; name: string };
@@ -227,6 +228,18 @@ export function AddCallingModal({
                     </optgroup>
                   ))}
                 </select>
+                {wardId ? (
+                  <div className="mt-2">
+                    <CreateCallingPositionFields
+                      lang="en"
+                      wardId={wardId}
+                      onCreated={(pos) => {
+                        setPositionId(pos.id);
+                        router.refresh();
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
 
               {err ? <p className="text-sm text-red-600">{err}</p> : null}

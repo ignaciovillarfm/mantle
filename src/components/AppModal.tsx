@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 const SIZE_CLASS = {
   sm: "max-w-md",
@@ -44,17 +45,21 @@ export function AppModal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture so nested AppModal closes before an underlying Dialog.
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
-      className={`fixed inset-0 z-50 flex justify-center bg-black/45 p-4 ${
+      className={`fixed inset-0 z-[110] flex justify-center bg-black/45 p-4 ${
         sheetOnMobile ? "items-end sm:items-center" : "items-center"
       }`}
       role="presentation"
@@ -88,6 +93,7 @@ export function AppModal({
         {children}
         {footer ? <div className="mt-6 border-t border-border pt-4">{footer}</div> : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

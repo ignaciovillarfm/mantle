@@ -3,8 +3,10 @@
 import { AddWardBusinessSectionModal } from "./AddWardBusinessSectionModal";
 import { PrayerAssignmentCard } from "./PrayerAssignmentCard";
 import { SpeakerSlotCard } from "./SpeakerSlotCard";
+import { SpeakerSuggestionsModal } from "./SpeakerSuggestionsModal";
 import { TestimonyMessageEditor } from "./TestimonyMessageEditor";
-import type { SacramentPageBundle } from "./loadSacramentState";
+import type { CallingPositionOption, SacramentPageBundle } from "./loadSacramentState";
+import { combineWardBusinessEntries } from "@/lib/sacrament/combineWardBusinessEntries";
 import {
   DEFAULT_SACRAMENT_PROGRAM,
   defaultTemplateKeyForWardKind,
@@ -31,6 +33,7 @@ import {
   SACRAMENT_REVERENCE_NOTE,
   wardBusinessSectionDefaultTitle,
   type SacramentFormLang,
+  type SacramentMeetingProgramKind,
   type SacramentProgramBody,
   type SpeakerSlot,
   type TalkResponseStatus,
@@ -54,7 +57,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -65,12 +67,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { hoverRevealRemoveClassName, removeIconMarkClassName } from "@/lib/hoverRevealRemove";
 import Link from "next/link";
 import { toast } from "sonner";
 import { SacramentPauseSeparator, SacramentSection, sacramentFormControlClass } from "./SacramentSection";
+import { SacramentFormSkeleton } from "./SacramentSkeleton";
 import { sundayStripCellClassName } from "@/lib/formControlStyles";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -78,6 +80,29 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 
 const SACRAMENT_LANG_STORAGE_KEY = "mantle-sacrament-form-lang";
 const AUTO_SAVE_DEBOUNCE_MS = 1600;
+
+function agendaNavItems(kind: SacramentMeetingProgramKind): {
+  id: string;
+  en: string;
+  es: string;
+}[] {
+  const programItem =
+    kind === "testimony"
+      ? { id: "sec-program", en: "Testimony", es: "Testimonios" }
+      : kind === "general_conference"
+        ? { id: "sec-program", en: "General Conference", es: "Conferencia General" }
+        : { id: "sec-program", en: "Speakers", es: "Discursantes" };
+
+  return [
+    { id: "sec-header", en: "Header", es: "Encabezado" },
+    { id: "sec-presiding", en: "Presiding", es: "Presidencia" },
+    { id: "sec-announcements", en: "Announcements", es: "Anuncios" },
+    { id: "sec-ward-business", en: "Ward business", es: "Asuntos del barrio" },
+    { id: "sec-sacrament", en: "Sacrament", es: "Santa Cena" },
+    programItem,
+    { id: "sec-closing", en: "Closing", es: "Cierre" },
+  ];
+}
 
 function serializeSacramentDraft(input: {
   program: SacramentProgramBody;
@@ -173,17 +198,24 @@ function ReadonlyPairRow({
   rightValue: string;
   showLabels?: boolean;
 }) {
+  const multiName = leftValue.includes(" y ") || leftValue.includes(" and ");
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
         {showLabels ? <p className="mb-1 text-sm font-medium text-foreground">{leftLabel}</p> : null}
-        <div className={cn("flex h-10 items-center rounded-lg px-3 text-sm", sacramentFormControlClass)}>
+        <div
+          className={cn(
+            "flex min-h-10 items-center rounded-lg px-3 py-2 text-sm",
+            sacramentFormControlClass,
+            multiName && "font-medium",
+          )}
+        >
           {leftValue || "—"}
         </div>
       </div>
       <div>
         {showLabels ? <p className="mb-1 text-sm font-medium text-foreground">{rightLabel}</p> : null}
-        <div className={cn("flex h-10 items-center rounded-lg px-3 text-sm", sacramentFormControlClass)}>
+        <div className={cn("flex min-h-10 items-center rounded-lg px-3 py-2 text-sm", sacramentFormControlClass)}>
           {rightValue || "—"}
         </div>
       </div>
@@ -211,20 +243,6 @@ function AnnouncementRowsEditor({
     setRows((prev) => {
       const serializedPrev = serializeAnnouncementRows(prev);
       if (serializedPrev === value) return prev;
-      // #region agent log
-      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
-        body: JSON.stringify({
-          sessionId: "839c0d",
-          hypothesisId: "A",
-          location: "SacramentClient.tsx:AnnouncementRowsEditor:valueSync",
-          message: "external value sync applied",
-          data: { valueLen: value.length, serializedPrevLen: serializedPrev.length },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       return rowsFromAnnouncementsValue(value);
     });
   }, [value]);
@@ -232,20 +250,6 @@ function AnnouncementRowsEditor({
   const commitRows = useCallback(
     (nextRows: string[]) => {
       const serialized = serializeAnnouncementRows(nextRows);
-      // #region agent log
-      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
-        body: JSON.stringify({
-          sessionId: "839c0d",
-          hypothesisId: "A",
-          location: "SacramentClient.tsx:AnnouncementRowsEditor:commitRows",
-          message: "user committed announcement rows",
-          data: { rowCount: nextRows.length, serializedLen: serialized.length },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       setRows(nextRows);
       onChange(serialized);
     },
@@ -325,7 +329,7 @@ function parseHymnValue(value: string): { numberPart: string; namePart: string }
 }
 
 function buildHymnValue(numberPart: string, namePart: string): string {
-  const n = numberPart.trim();
+  const n = numberPart.replace(/\D/g, "").slice(0, 5);
   const name = namePart;
   if (n && name.length > 0) return `${n} - ${name}`;
   if (n) return n;
@@ -344,6 +348,7 @@ function HymnInput({
   placeholder?: string;
 }) {
   const parsed = parseHymnValue(value);
+  const numberDigits = parsed.numberPart.replace(/\D/g, "").slice(0, 5);
   return (
     <div className="mt-1 flex items-center gap-2">
       <span aria-hidden="true" className="shrink-0 text-sm font-medium text-foreground/75" title="Hymn number">
@@ -353,9 +358,10 @@ function HymnInput({
         id={`${id}-number`}
         type="text"
         inputMode="numeric"
+        maxLength={5}
         className={cn(sacramentFormControlClass, "h-10 w-16 shrink-0 px-2 text-center")}
         aria-label="Hymn number"
-        value={parsed.numberPart}
+        value={numberDigits}
         onChange={(e) => onChange(buildHymnValue(e.target.value, parsed.namePart))}
       />
       <Input
@@ -363,7 +369,7 @@ function HymnInput({
         className={cn(sacramentFormControlClass, "h-10 min-w-0 flex-1")}
         placeholder={placeholder}
         value={parsed.namePart}
-        onChange={(e) => onChange(buildHymnValue(parsed.numberPart, e.target.value))}
+        onChange={(e) => onChange(buildHymnValue(numberDigits, e.target.value))}
       />
     </div>
   );
@@ -371,23 +377,6 @@ function HymnInput({
 
 function renumberSpeakerSlots(list: SpeakerSlot[]): SpeakerSlot[] {
   return list.map((s, i) => ({ ...s, position: i + 1 }));
-}
-
-/** Shown on SSR + first client paint so password managers (e.g. Dashlane) cannot inject attributes before hydration. */
-function SacramentFormSkeleton() {
-  return (
-    <div className="space-y-8" aria-busy="true" aria-label="Loading form">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <Card key={i}>
-          <CardContent className="space-y-3 pt-4">
-            <Skeleton className="h-6 max-w-xs" />
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
 }
 
 export function SacramentClient({
@@ -482,8 +471,25 @@ export function SacramentClient({
   const bundle: SacramentPageBundle | undefined =
     queryBundle ?? cacheSnapshot ?? (propsAlignedWithUrl ? initial : undefined);
 
-  /** Optimistic week for the date strip only — updates on arrow click before RSC returns (~see debug H5). */
+  /** Optimistic week for the date strip — updates on arrow click before the URL catches up. */
   const [displayWeekIso, setDisplayWeekIso] = useState(meetingDate);
+
+  /** Subscribe to the displayed week so prefetched adjacent Sundays are used without a loading flash. */
+  const displayPageQueryKey = useMemo(
+    () => sacramentQueryKeys.page(effectiveWardId, displayWeekIso),
+    [effectiveWardId, displayWeekIso],
+  );
+  const { data: displayWeekBundle } = useQuery({
+    queryKey: displayPageQueryKey,
+    queryFn: (ctx) => loadSacramentPageQuery(queryClient, ctx),
+    staleTime: SACRAMENT_PAGE_STALE_MS,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
+  });
+
   const [program, setProgram] = useState<SacramentProgramBody>(DEFAULT_SACRAMENT_PROGRAM);
   const [presiding, setPresiding] = useState<string | null>(null);
   const [conducting, setConducting] = useState<string | null>(null);
@@ -499,6 +505,17 @@ export function SacramentClient({
   const [closingPrayerFulfilled, setClosingPrayerFulfilled] = useState<boolean | null>(null);
   const [speakers, setSpeakers] = useState<SpeakerSlot[]>(normalizeSpeakerSlots([]));
   const displaySpeakers = useMemo(() => normalizeSpeakerSlots(speakers), [speakers]);
+  const assignedSpeakerMemberIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const slot of displaySpeakers) {
+      if (slot.member_id) ids.add(slot.member_id);
+    }
+    return ids;
+  }, [displaySpeakers]);
+  const speakerTalkSuggestions = (bundle ?? displayWeekBundle)?.speakerTalkSuggestions ?? [];
+  const canAddSpeakerSuggestion =
+    displaySpeakers.length < MAX_DISCOURSE_SLOTS ||
+    displaySpeakers.some((slot) => !slot.member_id && !slot.guest_name?.trim());
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [formLang, setFormLangState] = useState<SacramentFormLang>("es");
@@ -507,26 +524,112 @@ export function SacramentClient({
   const [wardSectionToRemove, setWardSectionToRemove] = useState<string | null>(null);
   const [autosaveReady, setAutosaveReady] = useState(false);
   const lastSavedRef = useRef<string>("");
-  const localDraftRef = useRef<string>("");
   const routeKeyRef = useRef<string | null>(null);
   const didHydrateCurrentRouteRef = useRef(false);
   const bundleRef = useRef(bundle);
   bundleRef.current = bundle;
   const queryClientRef = useRef(queryClient);
   queryClientRef.current = queryClient;
-  const routerRef = useRef(router);
-  routerRef.current = router;
   const formLangRef = useRef(formLang);
   formLangRef.current = formLang;
   const pageQueryKeyRef = useRef(pageQueryKey);
   pageQueryKeyRef.current = pageQueryKey;
+  const autosaveReadyRef = useRef(autosaveReady);
+  autosaveReadyRef.current = autosaveReady;
+  const effectiveWardIdRef = useRef(effectiveWardId);
+  effectiveWardIdRef.current = effectiveWardId;
+  const effectiveMeetingDateRef = useRef(effectiveMeetingDate);
+  effectiveMeetingDateRef.current = effectiveMeetingDate;
+  const draftRef = useRef({
+    program,
+    presiding,
+    conducting,
+    chorister,
+    organist,
+    openingPrayer,
+    closingPrayer,
+    openingPrayerResponse,
+    openingPrayerNote,
+    openingPrayerFulfilled,
+    closingPrayerResponse,
+    closingPrayerNote,
+    closingPrayerFulfilled,
+    speakers,
+  });
+  draftRef.current = {
+    program,
+    presiding,
+    conducting,
+    chorister,
+    organist,
+    openingPrayer,
+    closingPrayer,
+    openingPrayerResponse,
+    openingPrayerNote,
+    openingPrayerFulfilled,
+    closingPrayerResponse,
+    closingPrayerNote,
+    closingPrayerFulfilled,
+    speakers,
+  };
+  const debounceTimerRef = useRef<number | null>(null);
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const [formFieldsMounted, setFormFieldsMounted] = useState(false);
+  const [catalogMembers, setCatalogMembers] = useState<{ id: string; name: string }[]>([]);
+  const [catalogCallings, setCatalogCallings] = useState<CallingPositionOption[]>([]);
+  const [activeAgendaSection, setActiveAgendaSection] = useState("sec-header");
+  const [speakerSuggestionsOpen, setSpeakerSuggestionsOpen] = useState(false);
+  const agendaItems = useMemo(
+    () => agendaNavItems(sacramentMeetingProgramKind(displayWeekIso)),
+    [displayWeekIso],
+  );
+  /** Only skeleton when this Sunday is not already in cache (initial mount or uncached jump). */
+  const showFormSkeleton =
+    !formFieldsMounted ||
+    !(displayWeekIso === effectiveMeetingDate ? bundle : displayWeekBundle);
 
   useEffect(() => {
     setFormFieldsMounted(true);
   }, []);
 
-  /** Same ward/date after `router.refresh()`: RSC passes a new `initial` — publish it so cache matches server without waiting on refetch. */
+  useEffect(() => {
+    if (!bundle) return;
+    setCatalogMembers(bundle.members);
+    setCatalogCallings(bundle.callingPositions);
+  }, [bundle]);
+
+  useEffect(() => {
+    if (!formFieldsMounted || showFormSkeleton) return;
+
+    const ids = agendaItems.map((i) => i.id);
+    const highlightOffsetPx = 120;
+
+    const updateActiveSection = () => {
+      if (window.scrollY < 48) {
+        setActiveAgendaSection(ids[0] ?? "sec-header");
+        return;
+      }
+      let current = ids[0] ?? "sec-header";
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= highlightOffsetPx) {
+          current = id;
+        }
+      }
+      setActiveAgendaSection(current);
+    };
+
+    updateActiveSection();
+    window.addEventListener("scroll", updateActiveSection, { passive: true });
+    window.addEventListener("resize", updateActiveSection);
+    return () => {
+      window.removeEventListener("scroll", updateActiveSection);
+      window.removeEventListener("resize", updateActiveSection);
+    };
+  }, [formFieldsMounted, showFormSkeleton, agendaItems, bundle?.meeting?.id, showDiscourseSlots]);
+
+  /** Same ward/date after navigation: RSC passes a new `initial` — publish it so cache matches server without waiting on refetch. */
   useLayoutEffect(() => {
     if (!propsAlignedWithUrl) return;
     queryClient.setQueryData(pageQueryKey, initial);
@@ -581,40 +684,6 @@ export function SacramentClient({
   }, [nextWeekFromUrl]);
 
   useEffect(() => {
-    localDraftRef.current = serializeSacramentDraft({
-      program,
-      presiding,
-      conducting,
-      chorister,
-      organist,
-      openingPrayer,
-      closingPrayer,
-      openingPrayerResponse,
-      openingPrayerNote,
-      openingPrayerFulfilled,
-      closingPrayerResponse,
-      closingPrayerNote,
-      closingPrayerFulfilled,
-      speakers,
-    });
-  }, [
-    program,
-    presiding,
-    conducting,
-    chorister,
-    organist,
-    openingPrayer,
-    closingPrayer,
-    openingPrayerResponse,
-    openingPrayerNote,
-    openingPrayerFulfilled,
-    closingPrayerResponse,
-    closingPrayerNote,
-    closingPrayerFulfilled,
-    speakers,
-  ]);
-
-  useEffect(() => {
     if (!bundle) return;
     const rk = `${effectiveWardId}|${effectiveMeetingDate}`;
     const navigated = routeKeyRef.current !== null && routeKeyRef.current !== rk;
@@ -622,27 +691,7 @@ export function SacramentClient({
       didHydrateCurrentRouteRef.current = false;
     }
     routeKeyRef.current = rk;
-    const hasLocalUnsavedChanges = localDraftRef.current !== lastSavedRef.current;
     const hydrateSkipped = didHydrateCurrentRouteRef.current && !navigated;
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
-      body: JSON.stringify({
-        sessionId: "839c0d",
-        hypothesisId: "E",
-        location: "SacramentClient.tsx:hydrate",
-        message: "bundle hydrate effect",
-        data: {
-          navigated,
-          hydrateSkipped,
-          bundleAnnouncementsLen: bundle.meeting?.program.announcements?.length ?? -1,
-          hasLocalUnsavedChanges,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (hydrateSkipped) {
       setAutosaveReady(true);
       return;
@@ -690,195 +739,358 @@ export function SacramentClient({
     return () => clearTimeout(id);
   }, [bundle, effectiveMeetingDate, effectiveWardId]);
 
+  /** When the date strip moves to a prefetched Sunday, apply that cache immediately so the form/agenda do not remount into a skeleton. */
   useEffect(() => {
-    if (!autosaveReady || !bundleRef.current) {
+    if (displayWeekIso === effectiveMeetingDate) return;
+    if (!displayWeekBundle) return;
+    setAutosaveReady(false);
+    const m = displayWeekBundle.meeting;
+    const pool = displayWeekBundle.rolePool;
+    if (m) {
+      setProgram(m.program);
+      setPresiding(m.presiding_member_id ?? firstPoolMember(pool?.presiding ?? []));
+      setConducting(m.conducting_id ?? firstPoolMember(pool?.conducting ?? []));
+      setChorister(m.chorister_member_id ?? firstPoolMember(pool?.chorister ?? []));
+      setOrganist(m.organist_member_id ?? firstPoolMember(pool?.organist ?? []));
+      setOpeningPrayer(m.opening_prayer_member_id);
+      setClosingPrayer(m.closing_prayer_member_id);
+      setOpeningPrayerResponse(parseTalkResponseStatus(m.opening_prayer_response_status));
+      setOpeningPrayerNote(m.opening_prayer_response_note ?? null);
+      setOpeningPrayerFulfilled(m.opening_prayer_fulfilled ?? null);
+      setClosingPrayerResponse(parseTalkResponseStatus(m.closing_prayer_response_status));
+      setClosingPrayerNote(m.closing_prayer_response_note ?? null);
+      setClosingPrayerFulfilled(m.closing_prayer_fulfilled ?? null);
+    } else {
+      setProgram({ ...DEFAULT_SACRAMENT_PROGRAM });
+      setPresiding(firstPoolMember(pool?.presiding ?? []));
+      setConducting(firstPoolMember(pool?.conducting ?? []));
+      setChorister(firstPoolMember(pool?.chorister ?? []));
+      setOrganist(firstPoolMember(pool?.organist ?? []));
+      setOpeningPrayer(null);
+      setClosingPrayer(null);
+      setOpeningPrayerResponse("pending");
+      setOpeningPrayerNote(null);
+      setOpeningPrayerFulfilled(null);
+      setClosingPrayerResponse("pending");
+      setClosingPrayerNote(null);
+      setClosingPrayerFulfilled(null);
+    }
+    setSpeakers(normalizeSpeakerSlots(displayWeekBundle.speakers));
+    setCatalogMembers(displayWeekBundle.members);
+    setCatalogCallings(displayWeekBundle.callingPositions);
+    lastSavedRef.current = snapshotFromBundle(displayWeekBundle);
+    setSaveSuccess(false);
+  }, [displayWeekIso, effectiveMeetingDate, displayWeekBundle]);
+
+  const clearSaveDebounce = useCallback(() => {
+    if (debounceTimerRef.current != null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  /** Immediate save of the latest draft. Returns false only when a user-visible save attempt failed. */
+  const flushSave = useCallback(async (opts?: {
+    keepalive?: boolean;
+    reason?: "debounce" | "navigate" | "pagehide";
+  }): Promise<boolean> => {
+    const reason = opts?.reason ?? "debounce";
+    clearSaveDebounce();
+    const ready = autosaveReadyRef.current;
+    const hasBundle = !!bundleRef.current;
+    if (!ready || !hasBundle) {
       // #region agent log
       fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
         body: JSON.stringify({
-          sessionId: "839c0d",
-          hypothesisId: "B",
-          location: "SacramentClient.tsx:autosave:gate",
-          message: "autosave blocked",
-          data: { autosaveReady, hasBundle: !!bundleRef.current },
+          sessionId: "e149d7",
+          hypothesisId: "A",
+          location: "SacramentClient.tsx:flushSave:skip",
+          message: "flush skipped — not ready",
+          data: { reason, ready, hasBundle },
           timestamp: Date.now(),
         }),
       }).catch(() => {});
       // #endregion
-      return;
+      return true;
+    }
+    if (saveInFlightRef.current) {
+      // #region agent log
+      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+        body: JSON.stringify({
+          sessionId: "e149d7",
+          hypothesisId: "D",
+          location: "SacramentClient.tsx:flushSave:inflight",
+          message: "flush joined in-flight save",
+          data: { reason },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      return saveInFlightRef.current;
     }
 
-    const current = serializeSacramentDraft({
-      program,
-      presiding,
-      conducting,
-      chorister,
-      organist,
-      openingPrayer,
-      closingPrayer,
-      openingPrayerResponse,
-      openingPrayerNote,
-      openingPrayerFulfilled,
-      closingPrayerResponse,
-      closingPrayerNote,
-      closingPrayerFulfilled,
-      speakers,
-    });
-    if (current === lastSavedRef.current) return;
-
+    const draft = draftRef.current;
+    const wardId = effectiveWardIdRef.current;
+    const date = effectiveMeetingDateRef.current;
+    const next = serializeSacramentDraft(draft);
+    const dirty = next !== lastSavedRef.current;
     // #region agent log
     fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
       body: JSON.stringify({
-        sessionId: "839c0d",
+        sessionId: "e149d7",
         hypothesisId: "B",
-        location: "SacramentClient.tsx:autosave:schedule",
-        message: "autosave debounce scheduled",
-        data: { announcementsLen: program.announcements?.length ?? 0 },
+        location: "SacramentClient.tsx:flushSave:enter",
+        message: "flush evaluated",
+        data: {
+          reason,
+          dirty,
+          keepalive: opts?.keepalive === true,
+          wardId,
+          date,
+          announcementsLen: draft.program.announcements?.length ?? -1,
+        },
         timestamp: Date.now(),
       }),
     }).catch(() => {});
     // #endregion
+    if (!dirty) return true;
 
-    const t = window.setTimeout(() => {
-      const next = serializeSacramentDraft({
-        program,
-        presiding,
-        conducting,
-        chorister,
-        organist,
-        openingPrayer,
-        closingPrayer,
-        openingPrayerResponse,
-        openingPrayerNote,
-        openingPrayerFulfilled,
-        closingPrayerResponse,
-        closingPrayerNote,
-        closingPrayerFulfilled,
-        speakers,
-      });
-      if (next === lastSavedRef.current) return;
+    const programForSave: SacramentProgramBody = {
+      ...draft.program,
+      wardBusinessSections: (draft.program.wardBusinessSections ?? []).map((s) => {
+        const templateKey = defaultTemplateKeyForWardKind(s.kind);
+        if (templateKey) {
+          return { ...s, templateKey, body: "" };
+        }
+        return s;
+      }),
+    };
+    const payload = {
+      wardId,
+      date,
+      theme: programForSave.preparationTheme.trim() || null,
+      program: programForSave,
+      presiding_member_id: draft.presiding,
+      conducting_id: draft.conducting,
+      chorister_member_id: draft.chorister,
+      organist_member_id: draft.organist,
+      opening_prayer_member_id: draft.openingPrayer,
+      closing_prayer_member_id: draft.closingPrayer,
+      opening_prayer_response_status: draft.openingPrayerResponse,
+      opening_prayer_response_note: draft.openingPrayerNote,
+      opening_prayer_fulfilled: draft.openingPrayerFulfilled,
+      closing_prayer_response_status: draft.closingPrayerResponse,
+      closing_prayer_response_note: draft.closingPrayerNote,
+      closing_prayer_fulfilled: draft.closingPrayerFulfilled,
+      speakers: normalizeSpeakerSlots(draft.speakers),
+    };
 
-      setSaving(true);
-      setSaveSuccess(false);
-
-      void (async () => {
-        const programForSave: SacramentProgramBody = {
-          ...program,
-          wardBusinessSections: (program.wardBusinessSections ?? []).map((s) => {
-            const templateKey = defaultTemplateKeyForWardKind(s.kind);
-            if (templateKey) {
-              return { ...s, templateKey, body: "" };
-            }
-            return s;
-          }),
-        };
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
-          body: JSON.stringify({
-            sessionId: "839c0d",
-            hypothesisId: "B",
-            location: "SacramentClient.tsx:autosave",
-            message: "autosave POST payload",
-            data: {
-              announcementsLen: programForSave.announcements?.length ?? -1,
-              wardId: effectiveWardId,
-              date: effectiveMeetingDate,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
-        const payload = {
-          wardId: effectiveWardId,
-          date: effectiveMeetingDate,
-          theme: programForSave.preparationTheme.trim() || null,
-          program: programForSave,
-          presiding_member_id: presiding,
-          conducting_id: conducting,
-          chorister_member_id: chorister,
-          organist_member_id: organist,
-          opening_prayer_member_id: openingPrayer,
-          closing_prayer_member_id: closingPrayer,
-          opening_prayer_response_status: openingPrayerResponse,
-          opening_prayer_response_note: openingPrayerNote,
-          opening_prayer_fulfilled: openingPrayerFulfilled,
-          closing_prayer_response_status: closingPrayerResponse,
-          closing_prayer_response_note: closingPrayerNote,
-          closing_prayer_fulfilled: closingPrayerFulfilled,
-          speakers: normalizeSpeakerSlots(speakers),
-        };
+    const keepalive = opts?.keepalive === true;
+    const run = async (): Promise<boolean> => {
+      if (!keepalive) {
+        setSaving(true);
+        setSaveSuccess(false);
+      }
+      try {
         const http = await fetch("/api/sacrament/program", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
           body: JSON.stringify(payload),
+          keepalive,
         });
-        const res = (await http.json()) as
-          | { ok: true; meetingId: string }
-          | { ok: false; error: string };
-        setSaving(false);
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "839c0d" },
-          body: JSON.stringify({
-            sessionId: "839c0d",
-            hypothesisId: "B",
-            location: "SacramentClient.tsx:autosave:response",
-            message: "autosave response",
-            data: { httpOk: http.ok, resOk: res.ok, status: http.status },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
+        let res: { ok: true; meetingId: string } | { ok: false; error: string };
+        try {
+          res = (await http.json()) as typeof res;
+        } catch {
+          // Unload/keepalive responses may be unreadable; treat transport success as saved.
+          if (keepalive && http.ok) {
+            lastSavedRef.current = next;
+            // #region agent log
+            fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+              body: JSON.stringify({
+                sessionId: "e149d7",
+                hypothesisId: "C",
+                location: "SacramentClient.tsx:flushSave:result",
+                message: "keepalive ok without JSON body",
+                data: { reason, status: http.status },
+                timestamp: Date.now(),
+              }),
+            }).catch(() => {});
+            // #endregion
+            return true;
+          }
+          if (!keepalive) {
+            setSaving(false);
+            toast.error(formT(formLangRef.current, { en: "Save failed.", es: "Error al guardar." }));
+          }
+          // #region agent log
+          fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+            body: JSON.stringify({
+              sessionId: "e149d7",
+              hypothesisId: "E",
+              location: "SacramentClient.tsx:flushSave:result",
+              message: "flush failed — JSON parse",
+              data: { reason, keepalive, status: http.status },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+          return false;
+        }
         if (http.ok && res.ok) {
           lastSavedRef.current = next;
-          setSaveSuccess(true);
-          toast.success(formT(formLangRef.current, { en: "Saved.", es: "Guardado." }));
-          const prevBundle =
-            queryClientRef.current.getQueryData<SacramentPageBundle>(pageQueryKeyRef.current) ??
-            bundleRef.current;
-          if (prevBundle) {
-            queryClientRef.current.setQueryData(
-              pageQueryKeyRef.current,
-              mergeSacramentBundleAfterSave(prevBundle, {
+          // #region agent log
+          fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+            body: JSON.stringify({
+              sessionId: "e149d7",
+              hypothesisId: "A",
+              location: "SacramentClient.tsx:flushSave:result",
+              message: "flush ok",
+              data: {
+                reason,
+                keepalive,
                 meetingId: res.meetingId,
-                date: effectiveMeetingDate,
-                theme: payload.theme,
-                program: payload.program,
-                presiding_member_id: payload.presiding_member_id,
-                conducting_id: payload.conducting_id,
-                chorister_member_id: payload.chorister_member_id,
-                organist_member_id: payload.organist_member_id,
-                opening_prayer_member_id: payload.opening_prayer_member_id,
-                closing_prayer_member_id: payload.closing_prayer_member_id,
-                opening_prayer_response_status: payload.opening_prayer_response_status,
-                opening_prayer_response_note: payload.opening_prayer_response_note,
-                opening_prayer_fulfilled: payload.opening_prayer_fulfilled,
-                closing_prayer_response_status: payload.closing_prayer_response_status,
-                closing_prayer_response_note: payload.closing_prayer_response_note,
-                closing_prayer_fulfilled: payload.closing_prayer_fulfilled,
-                speakers: payload.speakers,
-              }),
-            );
+                wardId,
+                date,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+          if (!keepalive) {
+            setSaving(false);
+            setSaveSuccess(true);
+            const prevBundle =
+              queryClientRef.current.getQueryData<SacramentPageBundle>(pageQueryKeyRef.current) ??
+              bundleRef.current;
+            if (prevBundle) {
+              queryClientRef.current.setQueryData(
+                pageQueryKeyRef.current,
+                mergeSacramentBundleAfterSave(prevBundle, {
+                  meetingId: res.meetingId,
+                  date,
+                  theme: payload.theme,
+                  program: payload.program,
+                  presiding_member_id: payload.presiding_member_id,
+                  conducting_id: payload.conducting_id,
+                  chorister_member_id: payload.chorister_member_id,
+                  organist_member_id: payload.organist_member_id,
+                  opening_prayer_member_id: payload.opening_prayer_member_id,
+                  closing_prayer_member_id: payload.closing_prayer_member_id,
+                  opening_prayer_response_status: payload.opening_prayer_response_status,
+                  opening_prayer_response_note: payload.opening_prayer_response_note,
+                  opening_prayer_fulfilled: payload.opening_prayer_fulfilled,
+                  closing_prayer_response_status: payload.closing_prayer_response_status,
+                  closing_prayer_response_note: payload.closing_prayer_response_note,
+                  closing_prayer_fulfilled: payload.closing_prayer_fulfilled,
+                  speakers: payload.speakers,
+                }),
+              );
+            }
           }
-          routerRef.current.refresh();
-        } else {
+          return true;
+        }
+        if (!keepalive) {
+          setSaving(false);
           let msg = `Save failed (${http.status})`;
-          if (typeof res === "object" && res !== null && "error" in res && typeof (res as { error: unknown }).error === "string") {
+          if (
+            typeof res === "object" &&
+            res !== null &&
+            "error" in res &&
+            typeof (res as { error: unknown }).error === "string"
+          ) {
             msg = (res as { error: string }).error;
           }
           toast.error(msg);
         }
-      })();
+        // #region agent log
+        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+          body: JSON.stringify({
+            sessionId: "e149d7",
+            hypothesisId: "E",
+            location: "SacramentClient.tsx:flushSave:result",
+            message: "flush failed — API",
+            data: { reason, keepalive, status: http.status, resOk: res.ok },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        return false;
+      } catch {
+        if (!keepalive) {
+          setSaving(false);
+          toast.error(formT(formLangRef.current, { en: "Save failed.", es: "Error al guardar." }));
+        }
+        // #region agent log
+        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+          body: JSON.stringify({
+            sessionId: "e149d7",
+            hypothesisId: "E",
+            location: "SacramentClient.tsx:flushSave:result",
+            message: "flush failed — network",
+            data: { reason, keepalive },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        return false;
+      }
+    };
+
+    const promise = run();
+    saveInFlightRef.current = promise;
+    try {
+      return await promise;
+    } finally {
+      if (saveInFlightRef.current === promise) {
+        saveInFlightRef.current = null;
+      }
+    }
+  }, [clearSaveDebounce]);
+
+  useEffect(() => {
+    if (!autosaveReady || !bundleRef.current) return;
+    const current = serializeSacramentDraft(draftRef.current);
+    if (current === lastSavedRef.current) return;
+
+    clearSaveDebounce();
+    // #region agent log
+    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+      body: JSON.stringify({
+        sessionId: "e149d7",
+        hypothesisId: "A",
+        location: "SacramentClient.tsx:autosave:schedule",
+        message: "debounce scheduled",
+        data: { ms: AUTO_SAVE_DEBOUNCE_MS },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    debounceTimerRef.current = window.setTimeout(() => {
+      debounceTimerRef.current = null;
+      void flushSave({ reason: "debounce" });
     }, AUTO_SAVE_DEBOUNCE_MS);
 
-    return () => window.clearTimeout(t);
+    return () => clearSaveDebounce();
   }, [
     autosaveReady,
     program,
@@ -897,17 +1109,71 @@ export function SacramentClient({
     speakers,
     effectiveWardId,
     effectiveMeetingDate,
+    clearSaveDebounce,
+    flushSave,
   ]);
 
   useEffect(() => {
-  }, [program.openingHymn, program.sacramentHymn, program.closingHymn, program.preparationTheme]);
+    const onPageHide = () => {
+      const current = serializeSacramentDraft(draftRef.current);
+      const dirty = current !== lastSavedRef.current;
+      // #region agent log
+      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+        body: JSON.stringify({
+          sessionId: "e149d7",
+          hypothesisId: "C",
+          location: "SacramentClient.tsx:pagehide",
+          message: "pagehide fired",
+          data: { dirty },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      if (!dirty) return;
+      void flushSave({ keepalive: true, reason: "pagehide" });
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [flushSave]);
 
-  const navigateWardDate = (nextWard: string, nextDate: string) => {
+  const navigateWardDate = async (nextWard: string, nextDate: string) => {
+    // #region agent log
+    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
+      body: JSON.stringify({
+        sessionId: "e149d7",
+        hypothesisId: "B",
+        location: "SacramentClient.tsx:navigateWardDate",
+        message: "ward/date navigate requested",
+        data: { nextWard, nextDate },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    const ok = await flushSave({ reason: "navigate" });
+    if (!ok) return;
     const q = new URLSearchParams();
     q.set("ward", nextWard);
     q.set("date", nextDate);
     router.push(`/sacrament?${q.toString()}`);
   };
+
+  const goToPrevWeek = useCallback(async () => {
+    const ok = await flushSave({ reason: "navigate" });
+    if (!ok) return;
+    handlePrevWeekClick();
+    router.push(prevSacramentUrlLive);
+  }, [flushSave, handlePrevWeekClick, router, prevSacramentUrlLive]);
+
+  const goToNextWeek = useCallback(async () => {
+    const ok = await flushSave({ reason: "navigate" });
+    if (!ok) return;
+    handleNextWeekClick();
+    router.push(nextSacramentUrlLive);
+  }, [flushSave, handleNextWeekClick, router, nextSacramentUrlLive]);
 
   const updateProgram = (key: keyof SacramentProgramBody, value: string) => {
     setProgram((p) => ({ ...p, [key]: value }));
@@ -928,8 +1194,8 @@ export function SacramentClient({
       body: string;
       templateKey?: string;
       newMembersNames?: string;
-      sustainingEntries?: { memberId: string; callingPositionId: string }[];
-      releaseEntries?: { memberId: string; callingPositionId: string }[];
+      sustainingEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
+      releaseEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
       ordinationEntries?: { memberId: string; office: "deacon" | "teacher" | "priest" | "" }[];
     }) => {
       setProgram((p) => {
@@ -939,18 +1205,26 @@ export function SacramentClient({
             ? globalThis.crypto.randomUUID()
             : `wb-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         const sustainingEntries = (section.sustainingEntries ?? [])
-          .map((e) => ({
-            memberId: e.memberId?.trim() ?? "",
-            callingPositionId: e.callingPositionId?.trim() ?? "",
-          }))
-          .filter((e) => e.memberId && e.callingPositionId);
+          .map((e) => {
+            const linkGroupId = e.linkGroupId?.trim() ?? "";
+            return {
+              memberId: e.memberId?.trim() ?? "",
+              callingPositionId: e.callingPositionId?.trim() ?? "",
+              ...(linkGroupId ? { linkGroupId } : {}),
+            };
+          })
+          .filter((e) => e.memberId);
         const sustaining = section.kind === "sustainings" && sustainingEntries.length > 0 ? { sustainingEntries } : {};
         const releaseEntries = (section.releaseEntries ?? [])
-          .map((e) => ({
-            memberId: e.memberId?.trim() ?? "",
-            callingPositionId: e.callingPositionId?.trim() ?? "",
-          }))
-          .filter((e) => e.memberId && e.callingPositionId);
+          .map((e) => {
+            const linkGroupId = e.linkGroupId?.trim() ?? "";
+            return {
+              memberId: e.memberId?.trim() ?? "",
+              callingPositionId: e.callingPositionId?.trim() ?? "",
+              ...(linkGroupId ? { linkGroupId } : {}),
+            };
+          })
+          .filter((e) => e.memberId);
         const releases = section.kind === "releases" && releaseEntries.length > 0 ? { releaseEntries } : {};
         const ordinationEntries = (section.ordinationEntries ?? [])
           .map((e) => ({ memberId: e.memberId?.trim() ?? "", office: e.office }))
@@ -965,10 +1239,14 @@ export function SacramentClient({
             const existing = cur[existingIdx];
             const mergedReleases = [
               ...(existing.releaseEntries ?? []),
-              ...(releaseEntries as { memberId: string; callingPositionId: string }[]),
+              ...releaseEntries,
             ].filter((entry, idx, arr) => {
-              const key = `${entry.memberId}::${entry.callingPositionId}`;
-              return arr.findIndex((e) => `${e.memberId}::${e.callingPositionId}` === key) === idx;
+              const key = `${entry.memberId}::${entry.callingPositionId}::${entry.linkGroupId ?? ""}`;
+              return (
+                arr.findIndex(
+                  (e) => `${e.memberId}::${e.callingPositionId}::${e.linkGroupId ?? ""}` === key,
+                ) === idx
+              );
             });
             const nextSections = [...cur];
             nextSections[existingIdx] = {
@@ -990,10 +1268,14 @@ export function SacramentClient({
             const existing = cur[existingIdx];
             const mergedSustainings = [
               ...(existing.sustainingEntries ?? []),
-              ...(sustainingEntries as { memberId: string; callingPositionId: string }[]),
+              ...sustainingEntries,
             ].filter((entry, idx, arr) => {
-              const key = `${entry.memberId}::${entry.callingPositionId}`;
-              return arr.findIndex((e) => `${e.memberId}::${e.callingPositionId}` === key) === idx;
+              const key = `${entry.memberId}::${entry.callingPositionId}::${entry.linkGroupId ?? ""}`;
+              return (
+                arr.findIndex(
+                  (e) => `${e.memberId}::${e.callingPositionId}::${e.linkGroupId ?? ""}` === key,
+                ) === idx
+              );
             });
             const nextSections = [...cur];
             nextSections[existingIdx] = {
@@ -1075,8 +1357,8 @@ export function SacramentClient({
         body: string;
         templateKey?: string;
         newMembersNames?: string;
-        sustainingEntries?: { memberId: string; callingPositionId: string }[];
-        releaseEntries?: { memberId: string; callingPositionId: string }[];
+        sustainingEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
+        releaseEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
         ordinationEntries?: { memberId: string; office: "deacon" | "teacher" | "priest" | "" }[];
       },
     ) => {
@@ -1085,17 +1367,25 @@ export function SacramentClient({
         const idx = cur.findIndex((s) => s.id === sectionId);
         if (idx < 0) return p;
         const sustainingEntries = (section.sustainingEntries ?? [])
-          .map((e) => ({
-            memberId: e.memberId?.trim() ?? "",
-            callingPositionId: e.callingPositionId?.trim() ?? "",
-          }))
-          .filter((e) => e.memberId && e.callingPositionId);
+          .map((e) => {
+            const linkGroupId = e.linkGroupId?.trim() ?? "";
+            return {
+              memberId: e.memberId?.trim() ?? "",
+              callingPositionId: e.callingPositionId?.trim() ?? "",
+              ...(linkGroupId ? { linkGroupId } : {}),
+            };
+          })
+          .filter((e) => e.memberId);
         const releaseEntries = (section.releaseEntries ?? [])
-          .map((e) => ({
-            memberId: e.memberId?.trim() ?? "",
-            callingPositionId: e.callingPositionId?.trim() ?? "",
-          }))
-          .filter((e) => e.memberId && e.callingPositionId);
+          .map((e) => {
+            const linkGroupId = e.linkGroupId?.trim() ?? "";
+            return {
+              memberId: e.memberId?.trim() ?? "",
+              callingPositionId: e.callingPositionId?.trim() ?? "",
+              ...(linkGroupId ? { linkGroupId } : {}),
+            };
+          })
+          .filter((e) => e.memberId);
         const ordinationEntries = (section.ordinationEntries ?? [])
           .map((e) => ({ memberId: e.memberId?.trim() ?? "", office: e.office }))
           .filter((e) => e.memberId && e.office);
@@ -1141,6 +1431,42 @@ export function SacramentClient({
     });
   }, []);
 
+  const addSpeakerFromSuggestion = useCallback((memberId: string) => {
+    setSpeakers((prev) => {
+      const slots = [...normalizeSpeakerSlots(prev)];
+      if (slots.some((slot) => slot.member_id === memberId)) return slots;
+
+      const emptyIdx = slots.findIndex((slot) => !slot.member_id && !slot.guest_name?.trim());
+      if (emptyIdx >= 0) {
+        const current = slots[emptyIdx];
+        if (!current) return slots;
+        slots[emptyIdx] = {
+          ...current,
+          member_id: memberId,
+          guest_name: null,
+          response_status: "pending",
+          response_note: null,
+          fulfilled: null,
+        };
+        return slots;
+      }
+
+      if (slots.length >= MAX_DISCOURSE_SLOTS) return slots;
+      return normalizeSpeakerSlots([
+        ...slots,
+        {
+          position: slots.length + 1,
+          member_id: memberId,
+          guest_name: null,
+          topic: "",
+          response_status: "pending",
+          response_note: null,
+          fulfilled: null,
+        },
+      ]);
+    });
+  }, []);
+
   const removeSpeakerSlotAtIndex = useCallback((index: number) => {
     setSpeakers((prev) => {
       const normalized = normalizeSpeakerSlots(prev);
@@ -1151,7 +1477,7 @@ export function SacramentClient({
     });
   }, []);
 
-  const allMembers = bundle?.members ?? [];
+  const allMembers = catalogMembers.length > 0 ? catalogMembers : (bundle?.members ?? []);
 
   const presidingPoolIds = bundle?.rolePool?.presiding ?? [];
   const conductingPoolIds = bundle?.rolePool?.conducting ?? [];
@@ -1175,40 +1501,23 @@ export function SacramentClient({
     [organistPoolIds, organist, allMembers],
   );
   const memberNameById = useMemo(
-    () => new Map((bundle?.members ?? []).map((m) => [m.id, m.name])),
-    [bundle?.members],
+    () => new Map(allMembers.map((m) => [m.id, m.name])),
+    [allMembers],
   );
   const callingTitleById = useMemo(
     () =>
       new Map(
-        (bundle?.callingPositions ?? []).map((p) => [
+        (catalogCallings.length > 0 ? catalogCallings : (bundle?.callingPositions ?? [])).map((p) => [
           p.id,
           formLang === "es" ? p.titleEs : p.titleEn,
         ]),
       ),
-    [bundle?.callingPositions, formLang],
+    [catalogCallings, bundle?.callingPositions, formLang],
   );
   const sectionTemplateBodyByKey = useMemo(() => {
     const entries = Object.entries(bundle?.sectionTemplates ?? {});
     return new Map(entries.map(([key, value]) => [key, formLang === "es" ? value.es : value.en]));
   }, [bundle?.sectionTemplates, formLang]);
-
-  useEffect(() => {
-  }, [program.wardBusinessSections]);
-
-  useEffect(() => {
-  }, [
-    bundle?.members,
-    bundle?.suggestions?.presidingIds,
-    bundle?.suggestions?.conductingIds,
-    bundle?.suggestions?.choristerIds,
-    bundle?.suggestions?.organistIds,
-    presidingOptions,
-    conductingOptions,
-    choristerOptions,
-    organistOptions,
-    effectiveWardId,
-  ]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 pb-8 text-foreground">
@@ -1278,66 +1587,99 @@ export function SacramentClient({
           </Select>
         </div>
       ) : null}
-      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-1 bg-background sm:gap-x-2">
-          <div
-            role="link"
-            tabIndex={0}
-            aria-label={formT(formLang, { en: "Previous Sunday", es: "Domingo anterior" })}
-            className={cn(
-              sundayStripCellClassName,
-              "flex h-14 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
-            )}
-            onClick={() => {
-              handlePrevWeekClick();
-              router.push(prevSacramentUrlLive);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                handlePrevWeekClick();
-                router.push(prevSacramentUrlLive);
-              }
-            }}
-          >
-            ‹
-          </div>
-          <div
-            className={cn(
-              sundayStripCellClassName,
-              "flex h-14 min-w-0 items-center justify-center px-3 text-center text-base font-semibold leading-snug sm:h-16 sm:text-lg",
-            )}
-          >
-            {formatSacramentSundayDisplayLabel(sacramentSundayLongLabel(displayWeekIso, formLang))}
-          </div>
-          <div
-            role="link"
-            tabIndex={0}
-            aria-label={formT(formLang, { en: "Next Sunday", es: "Domingo siguiente" })}
-            className={cn(
-              sundayStripCellClassName,
-              "flex h-14 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
-            )}
-            onClick={() => {
-              handleNextWeekClick();
-              router.push(nextSacramentUrlLive);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                handleNextWeekClick();
-                router.push(nextSacramentUrlLive);
-              }
-            }}
-          >
-            ›
-          </div>
-      </div>
+      <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <nav
+          aria-label={formT(formLang, { en: "Meeting agenda", es: "Agenda de la reunión" })}
+          className="mb-4 flex gap-1 overflow-x-auto pb-1 lg:sticky lg:top-20 lg:mb-0 lg:block lg:overflow-visible lg:pb-0"
+        >
+          <p className="mb-3 hidden text-sm font-semibold tracking-wide text-foreground/50 uppercase lg:block">
+            {formT(formLang, { en: "Agenda", es: "Agenda" })}
+          </p>
+          <ul className="flex gap-1 lg:flex-col lg:gap-1">
+            {agendaItems.map((item) => {
+              const active = activeAgendaSection === item.id;
+              return (
+                <li key={item.id}>
+                  <a
+                    href={`#${item.id}`}
+                    className={cn(
+                      "block whitespace-nowrap rounded-lg px-3 py-2.5 text-base transition-colors",
+                      active
+                        ? "bg-foreground/8 font-semibold text-foreground"
+                        : "text-foreground/60 hover:bg-foreground/5 hover:text-foreground",
+                    )}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      setActiveAgendaSection(item.id);
+                    }}
+                  >
+                    {formT(formLang, { en: item.en, es: item.es })}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
 
-      {!formFieldsMounted || !bundle ? (
-        <SacramentFormSkeleton />
-      ) : (
-      <div className="space-y-8">
+        <div className="space-y-8">
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-1 bg-background sm:gap-x-2">
+            <div
+              role="link"
+              tabIndex={0}
+              aria-label={formT(formLang, { en: "Previous Sunday", es: "Domingo anterior" })}
+              className={cn(
+                sundayStripCellClassName,
+                "flex h-14 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
+              )}
+              onClick={() => {
+                void goToPrevWeek();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void goToPrevWeek();
+                }
+              }}
+            >
+              ‹
+            </div>
+            <div
+              className={cn(
+                sundayStripCellClassName,
+                "flex h-14 min-w-0 items-center justify-center px-3 text-center text-base font-semibold leading-snug sm:h-16 sm:text-lg",
+              )}
+            >
+              {formatSacramentSundayDisplayLabel(sacramentSundayLongLabel(displayWeekIso, formLang))}
+            </div>
+            <div
+              role="link"
+              tabIndex={0}
+              aria-label={formT(formLang, { en: "Next Sunday", es: "Domingo siguiente" })}
+              className={cn(
+                sundayStripCellClassName,
+                "flex h-14 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
+              )}
+              onClick={() => {
+                void goToNextWeek();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void goToNextWeek();
+                }
+              }}
+            >
+              ›
+            </div>
+          </div>
+
+          {showFormSkeleton ? (
+            <SacramentFormSkeleton />
+          ) : (
+          <div className="space-y-8">
           <SacramentSection
+            id="sec-header"
             title={formT(formLang, {
               en: "Header and introductory items",
               es: "Encabezado e introducción",
@@ -1364,6 +1706,7 @@ export function SacramentClient({
           </SacramentSection>
 
           <SacramentSection
+            id="sec-presiding"
             title={formT(formLang, { en: "Presiding and conducting", es: "Presidencia y dirección" })}
             action={
               <Link
@@ -1426,6 +1769,7 @@ export function SacramentClient({
           </SacramentSection>
 
           <SacramentSection
+            id="sec-announcements"
             title={formT(formLang, {
               en: "Announcements and opening hymn",
               es: "Anuncios y himno inicial",
@@ -1461,7 +1805,7 @@ export function SacramentClient({
                 <PrayerAssignmentCard
                   variant="opening"
                   lang={formLang}
-                  members={bundle.members}
+                  members={allMembers}
                   memberId={openingPrayer}
                   memberName={openingPrayer ? (memberNameById.get(openingPrayer) ?? null) : null}
                   responseStatus={openingPrayerResponse}
@@ -1482,6 +1826,7 @@ export function SacramentClient({
           />
 
           <SacramentSection
+            id="sec-ward-business"
             title={formT(formLang, { en: "Ward business", es: "Asuntos del barrio" })}
             description={formT(formLang, {
               en: "Add a section for each item on the program (or none). Stake representative is entered below, after ward business.",
@@ -1500,10 +1845,12 @@ export function SacramentClient({
                 const releaseLines =
                   sec.kind === "releases"
                     ? (sec.releaseEntries && sec.releaseEntries.length > 0
-                        ? sec.releaseEntries.map((e) => ({
-                            n: memberNameById.get(e.memberId) ?? "",
-                            c: callingTitleById.get(e.callingPositionId) ?? "",
-                          }))
+                        ? combineWardBusinessEntries(
+                            sec.releaseEntries,
+                            memberNameById,
+                            callingTitleById,
+                            formLang,
+                          ).map((line) => ({ n: line.names, c: line.calling }))
                         : sec.body
                             .split("\n")
                             .map((line) => line.trim())
@@ -1512,6 +1859,15 @@ export function SacramentClient({
                               const parts = line.split("—").map((p) => p.trim());
                               return { n: parts[0] ?? "", c: parts.slice(1).join(" — ") };
                             }))
+                    : [];
+                const sustainingLines =
+                  sec.kind === "sustainings" && sec.sustainingEntries && sec.sustainingEntries.length > 0
+                    ? combineWardBusinessEntries(
+                        sec.sustainingEntries,
+                        memberNameById,
+                        callingTitleById,
+                        formLang,
+                      ).map((line) => ({ n: line.names, c: line.calling }))
                     : [];
                 const ordinationDeaconEntries =
                   sec.kind === "aaron_priesthood_ordination"
@@ -1609,23 +1965,19 @@ export function SacramentClient({
                         })}
                     </div>
                   ) : null}
-                  {sec.kind === "sustainings" && sec.sustainingEntries && sec.sustainingEntries.length > 0 ? (
+                  {sec.kind === "sustainings" && sustainingLines.length > 0 ? (
                     <div className="space-y-1">
-                      {sec.sustainingEntries.map((e, i) => {
-                        const n = memberNameById.get(e.memberId) ?? "";
-                        const c = callingTitleById.get(e.callingPositionId) ?? "";
-                        return (
-                          <div key={`${sec.id}-${e.memberId}-${e.callingPositionId}`}>
+                      {sustainingLines.map((line, i) => (
+                          <div key={`${sec.id}-sustaining-${i}`}>
                             <ReadonlyPairRow
                               leftLabel={formT(formLang, { en: "Name", es: "Nombre" })}
                               rightLabel={formT(formLang, { en: "Calling / role", es: "Cargo" })}
-                              leftValue={n}
-                              rightValue={c}
+                              leftValue={line.n}
+                              rightValue={line.c}
                               showLabels={i === 0}
                             />
                           </div>
-                        );
-                      })}
+                        ))}
                     </div>
                   ) : null}
                   {sec.kind === "new_members" ? (
@@ -1737,6 +2089,7 @@ export function SacramentClient({
           </SacramentSection>
 
           <SacramentSection
+            id="sec-sacrament"
             title={formT(formLang, { en: "Sacrament service", es: "Servicio sacramental" })}
           >
             <div className="grid gap-4">
@@ -1786,7 +2139,21 @@ export function SacramentClient({
             label={formT(formLang, { en: "Pause", es: "Pausa" })}
           />
 
-          <SacramentSection title={sacramentMeetingKindSectionTitle(meetingProgramKind, formLang)}>
+          <SacramentSection
+            id="sec-program"
+            title={sacramentMeetingKindSectionTitle(meetingProgramKind, formLang)}
+            action={
+              showDiscourseSlots && speakerTalkSuggestions.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-sm font-medium text-foreground/55 underline-offset-2 transition-colors hover:text-foreground hover:underline"
+                  onClick={() => setSpeakerSuggestionsOpen(true)}
+                >
+                  {formT(formLang, { en: "Suggestions", es: "Sugerencias" })}
+                </button>
+              ) : null
+            }
+          >
             {showDiscourseSlots ? (
             <div className="space-y-3">
               {displaySpeakers.map((slot, idx) => (
@@ -1795,7 +2162,7 @@ export function SacramentClient({
                   <SpeakerSlotCard
                     slot={slot}
                     lang={formLang}
-                    members={bundle.members}
+                    members={allMembers}
                     memberName={
                       slot.member_id ? (memberNameById.get(slot.member_id) ?? null) : null
                     }
@@ -1841,6 +2208,7 @@ export function SacramentClient({
           />
 
           <SacramentSection
+            id="sec-closing"
             title={formT(formLang, { en: "Closing", es: "Cierre" })}
           >
             <div className="space-y-4">
@@ -1856,7 +2224,7 @@ export function SacramentClient({
                   <PrayerAssignmentCard
                     variant="closing"
                     lang={formLang}
-                    members={bundle.members}
+                    members={allMembers}
                     memberId={closingPrayer}
                     memberName={closingPrayer ? (memberNameById.get(closingPrayer) ?? null) : null}
                     responseStatus={closingPrayerResponse}
@@ -1869,9 +2237,10 @@ export function SacramentClient({
               />
             </div>
           </SacramentSection>
-
+          </div>
+          )}
+        </div>
       </div>
-      )}
 
       <AddWardBusinessSectionModal
         open={wardAddModalOpen}
@@ -1880,8 +2249,22 @@ export function SacramentClient({
           setWardEditSectionId(null);
         }}
         formLang={formLang}
-        members={bundle?.members ?? []}
-        callingPositions={bundle?.callingPositions ?? []}
+        members={allMembers}
+        callingPositions={catalogCallings.length > 0 ? catalogCallings : (bundle?.callingPositions ?? [])}
+        memberActiveCallings={bundle?.memberActiveCallings ?? {}}
+        wardId={effectiveWardId}
+        onMembersChange={(next) => {
+          setCatalogMembers(next);
+          if (bundle) {
+            queryClient.setQueryData(pageQueryKey, { ...bundle, members: next });
+          }
+        }}
+        onCallingPositionsChange={(next) => {
+          setCatalogCallings(next);
+          if (bundle) {
+            queryClient.setQueryData(pageQueryKey, { ...bundle, callingPositions: next });
+          }
+        }}
         atCapacity={!editingSection && (program.wardBusinessSections?.length ?? 0) >= MAX_WARD_BUSINESS_SECTIONS}
         editingSection={editingSection}
         onConfirm={(section) => {
@@ -1893,6 +2276,16 @@ export function SacramentClient({
           setWardAddModalOpen(false);
           setWardEditSectionId(null);
         }}
+      />
+
+      <SpeakerSuggestionsModal
+        open={speakerSuggestionsOpen}
+        onClose={() => setSpeakerSuggestionsOpen(false)}
+        lang={formLang}
+        suggestions={speakerTalkSuggestions}
+        assignedMemberIds={assignedSpeakerMemberIds}
+        canAddMore={canAddSpeakerSuggestion}
+        onAdd={addSpeakerFromSuggestion}
       />
 
       <AlertDialog

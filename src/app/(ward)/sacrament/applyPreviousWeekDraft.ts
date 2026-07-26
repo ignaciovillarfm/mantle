@@ -3,7 +3,7 @@ import {
   normalizeSpeakerSlots,
   type SacramentProgramBody,
 } from "@/lib/sacramentProgram";
-import { loadSacramentPageState } from "./loadSacramentState";
+import { loadPreviousSacramentSnapshot } from "./loadSacramentState";
 
 export type ApplyPreviousDraft = {
   program: SacramentProgramBody;
@@ -23,7 +23,7 @@ export async function buildApplyPreviousWeekDraft(
   forMeetingDate: string,
 ): Promise<{ ok: true; draft: ApplyPreviousDraft } | { ok: false; error: string }> {
   try {
-    const { previous } = await loadSacramentPageState(wardId, forMeetingDate);
+    const previous = await loadPreviousSacramentSnapshot(wardId, forMeetingDate);
     if (!previous) {
       return { ok: false, error: "No previous saved program for this ward." };
     }

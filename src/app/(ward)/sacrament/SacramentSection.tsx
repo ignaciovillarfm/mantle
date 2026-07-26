@@ -14,12 +14,14 @@ import type { ReactNode } from "react";
 export { formControlClassName as sacramentFormControlClass };
 
 export function SacramentSection({
+  id,
   title,
   description,
   action,
   children,
   className,
 }: {
+  id?: string;
   title: string;
   description?: ReactNode;
   action?: ReactNode;
@@ -27,7 +29,7 @@ export function SacramentSection({
   className?: string;
 }) {
   return (
-    <Card className={cn(cardElevationClassName, "gap-0 py-7", className)}>
+    <Card id={id} className={cn(cardElevationClassName, "gap-0 scroll-mt-24 py-7", className)}>
       <CardHeader className={cn("px-7 pb-4", action ? "grid-cols-[1fr_auto]" : undefined)}>
         <CardTitle className="text-lg font-bold tracking-tight text-foreground">{title}</CardTitle>
         {description ? (

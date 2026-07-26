@@ -23,9 +23,18 @@ export type WardBusinessSection = {
   sustainingMemberId?: string;
   sustainingCallingPositionId?: string;
   /** Multi-person sustainings support (preferred over single legacy fields above). */
-  sustainingEntries?: { memberId: string; callingPositionId: string }[];
+  sustainingEntries?: {
+    memberId: string;
+    callingPositionId: string;
+    /** When set, people sharing this id print as one combined line. Optional; same calling alone does not link. */
+    linkGroupId?: string;
+  }[];
   /** Multi-person releases support; rendered separately in UI. */
-  releaseEntries?: { memberId: string; callingPositionId: string }[];
+  releaseEntries?: {
+    memberId: string;
+    callingPositionId: string;
+    linkGroupId?: string;
+  }[];
   /** Multi-person ordinations support; rendered separately in UI. */
   ordinationEntries?: { memberId: string; office: AaronicOffice }[];
   /** Text template key resolved at render-time from DB templates table. */
@@ -356,6 +365,11 @@ export type WardBusinessReleaseRow = {
   member_id: string | null;
   /** `calling_positions.id`; title resolved when building program text. */
   calling_position_id: string | null;
+  /**
+   * Explicit companion group. People with the same `link_group_id` print as one line.
+   * Same calling without a shared link id stays as separate individual lines.
+   */
+  link_group_id: string | null;
 };
 
 export type AaronicOffice = "deacon" | "teacher" | "priest" | "";
@@ -377,7 +391,7 @@ export type WardBusinessModalFields = {
   familyMembers: string;
   /** Relevos: one row per person (nombre + cargo). */
   releaseRows: WardBusinessReleaseRow[];
-  /** Sostenimientos: one row per person (nombre + cargo). */
+  /** Sostenimientos: one row per person (nombre + cargo); optional link_group_id for companions. */
   sustainingRows: WardBusinessReleaseRow[];
   /** Ordenación: one row per person (nombre + oficio). */
   ordinationRows: WardBusinessOrdinationRow[];
@@ -385,7 +399,7 @@ export type WardBusinessModalFields = {
 };
 
 export function newWardBusinessReleaseRow(): WardBusinessReleaseRow {
-  return { id: newWardSectionId(), member_id: null, calling_position_id: null };
+  return { id: newWardSectionId(), member_id: null, calling_position_id: null, link_group_id: null };
 }
 
 export function newWardBusinessOrdinationRow(): WardBusinessOrdinationRow {
@@ -490,8 +504,12 @@ function parseWardBusinessSectionsArray(raw: unknown): WardBusinessSection[] {
               typeof e.callingPositionId === "string" && e.callingPositionId.trim().length > 0
                 ? e.callingPositionId.trim()
                 : "",
+            linkGroupId:
+              typeof e.linkGroupId === "string" && e.linkGroupId.trim().length > 0
+                ? e.linkGroupId.trim()
+                : undefined,
           }))
-          .filter((e) => e.memberId && e.callingPositionId)
+          .filter((e) => e.memberId)
       : [];
     if (releaseEntries.length > 0) {
       section.releaseEntries = releaseEntries;
@@ -522,8 +540,12 @@ function parseWardBusinessSectionsArray(raw: unknown): WardBusinessSection[] {
               typeof e.callingPositionId === "string" && e.callingPositionId.trim().length > 0
                 ? e.callingPositionId.trim()
                 : "",
+            linkGroupId:
+              typeof e.linkGroupId === "string" && e.linkGroupId.trim().length > 0
+                ? e.linkGroupId.trim()
+                : undefined,
           }))
-          .filter((e) => e.memberId && e.callingPositionId)
+          .filter((e) => e.memberId)
       : [];
     if (sustainingEntries.length > 0) {
       section.sustainingEntries = sustainingEntries;
