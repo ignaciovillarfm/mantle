@@ -58,10 +58,15 @@ export async function middleware(request: NextRequest) {
 
   const isProtected =
     request.nextUrl.pathname.startsWith("/dashboard") ||
+    request.nextUrl.pathname.startsWith("/bishopric") ||
     request.nextUrl.pathname.startsWith("/leadership") ||
     request.nextUrl.pathname.startsWith("/members") ||
+    request.nextUrl.pathname.startsWith("/calendar") ||
+    request.nextUrl.pathname.startsWith("/api/calendar") ||
+    request.nextUrl.pathname.startsWith("/api/youth-activities") ||
     request.nextUrl.pathname.startsWith("/api/members") ||
     request.nextUrl.pathname.startsWith("/api/callings") ||
+    request.nextUrl.pathname.startsWith("/api/calling-positions") ||
     request.nextUrl.pathname.startsWith("/api/sacrament") ||
     request.nextUrl.pathname.startsWith("/api/ward-invites") ||
     request.nextUrl.pathname.startsWith("/sacrament") ||

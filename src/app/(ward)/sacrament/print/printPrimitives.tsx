@@ -1,3 +1,4 @@
+import { combineWardBusinessEntries } from "@/lib/sacrament/combineWardBusinessEntries";
 import {
   newMembersDisplayValues,
   splitNewMembersTemplateBody,
@@ -91,25 +92,14 @@ export function WardBusinessPrintBody({
         const newMembersParsed = sec.kind === "new_members" ? newMembersDisplayValues(sec, lang) : null;
         const releaseRows =
           sec.kind === "releases"
-            ? (() => {
-                const byMember = new Map<string, string[]>();
-                const memberOrder: string[] = [];
-                for (const e of sec.releaseEntries ?? []) {
-                  const mid = e.memberId ?? "";
-                  const calling = callingById.get(e.callingPositionId) ?? "—";
-                  if (!byMember.has(mid)) {
-                    byMember.set(mid, []);
-                    memberOrder.push(mid);
-                  }
-                  const list = byMember.get(mid)!;
-                  if (!list.includes(calling)) list.push(calling);
-                }
-                return memberOrder.map((mid) => {
-                  const name = memberNameById.get(mid) ?? "—";
-                  const callings = (byMember.get(mid) ?? []).join(" y ");
-                  return `${name} - ${callings}`;
-                });
-              })()
+            ? combineWardBusinessEntries(
+                sec.releaseEntries ?? [],
+                memberNameById,
+                callingById,
+                lang,
+              ).map((line) =>
+                line.calling ? `${line.names} - ${line.calling}` : line.names,
+              )
             : [];
 
         return (
@@ -143,25 +133,14 @@ export function WardBusinessPrintBody({
             {sec.kind === "sustainings" && (sec.sustainingEntries ?? []).length > 0 ? (
               <div className="mt-1">
                 <FixedRowsTable
-                  rows={(() => {
-                    const byMember = new Map<string, string[]>();
-                    const memberOrder: string[] = [];
-                    for (const e of sec.sustainingEntries ?? []) {
-                      const mid = e.memberId ?? "";
-                      const calling = callingById.get(e.callingPositionId) ?? "—";
-                      if (!byMember.has(mid)) {
-                        byMember.set(mid, []);
-                        memberOrder.push(mid);
-                      }
-                      const list = byMember.get(mid)!;
-                      if (!list.includes(calling)) list.push(calling);
-                    }
-                    return memberOrder.map((mid) => {
-                      const name = memberNameById.get(mid) ?? "—";
-                      const callings = (byMember.get(mid) ?? []).join(" y ");
-                      return `${name} - ${callings}`;
-                    });
-                  })()}
+                  rows={combineWardBusinessEntries(
+                    sec.sustainingEntries ?? [],
+                    memberNameById,
+                    callingById,
+                    lang,
+                  ).map((line) =>
+                    line.calling ? `${line.names} - ${line.calling}` : line.names,
+                  )}
                 />
               </div>
             ) : null}

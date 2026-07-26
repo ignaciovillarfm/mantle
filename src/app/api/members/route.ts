@@ -1,4 +1,5 @@
 import { assertWardLeadership } from "@/lib/serverRoles";
+import { normalizeMemberNameForCompare } from "@/lib/members/normalizeMemberName";
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
@@ -61,6 +62,25 @@ export async function POST(req: Request) {
 
   const supabase = await createClient();
 
+  const { data: existingMembers, error: dupErr } = await supabase
+    .from("members")
+    .select("id, name")
+    .eq("ward_id", wardId);
+
+  if (dupErr) {
+    return NextResponse.json({ ok: false, error: dupErr.message }, { status: 400 });
+  }
+
+  const normalizedNew = normalizeMemberNameForCompare(displayName);
+  const duplicate = (existingMembers ?? []).find(
+    (m) => normalizeMemberNameForCompare(String(m.name ?? "")) === normalizedNew,
+  );
+  if (duplicate) {
+    return NextResponse.json(
+      { ok: false, error: "A member with this name already exists in the ward", duplicateId: duplicate.id },
+      { status: 409 },
+    );
+  }
 
   let organizationId = organizationIdIn;
   if (!organizationId) {

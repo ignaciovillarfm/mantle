@@ -1,5 +1,5 @@
 import { BishopricDiagram, type BishopricSlots } from "@/components/BishopricDiagram";
-import { OrganizationGroupsModal } from "./OrganizationGroupsModal";
+import { OrganizationGroupsPanel } from "./OrganizationGroupsPanel";
 import { createClient } from "@/lib/supabase/server";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
 
@@ -234,19 +234,19 @@ export async function WardLeadershipView() {
         };
 
         return (
-          <section key={wardId} className="space-y-4 rounded-xl border border-border bg-surface p-4">
-            <div>
-              <h3 className="text-lg font-semibold">{ward.name as string}</h3>
-            </div>
+          <section key={wardId} className="space-y-5">
+            {effectiveWards.length > 1 ? (
+              <h3 className="text-lg font-semibold tracking-tight">{ward.name as string}</h3>
+            ) : null}
 
             <BishopricDiagram slots={bishopricSlots} />
 
             {otherGroups.length === 0 ? (
-              <div className="rounded-lg border border-border bg-background p-4 text-sm text-foreground/50">
+              <div className="rounded-xl border border-dashed border-border bg-muted/10 px-4 py-8 text-center text-sm text-foreground/50">
                 No other organization groups configured for this ward.
               </div>
             ) : (
-              <OrganizationGroupsModal wardId={wardId} groups={otherGroups} />
+              <OrganizationGroupsPanel groups={otherGroups} />
             )}
           </section>
         );

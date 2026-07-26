@@ -71,6 +71,8 @@ export function mergeSacramentBundleAfterSave(
     sectionTemplates: prev.sectionTemplates,
     suggestions: prev.suggestions,
     rolePool: prev.rolePool,
+    memberActiveCallings: prev.memberActiveCallings ?? {},
+    speakerTalkSuggestions: prev.speakerTalkSuggestions ?? [],
     meeting,
     speakers,
     previous: prev.previous,
