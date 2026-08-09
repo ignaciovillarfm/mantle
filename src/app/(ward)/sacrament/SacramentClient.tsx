@@ -16,7 +16,9 @@ import {
   MIN_DISCOURSE_SLOTS,
   normalizeSpeakerSlots,
   parseAnnouncementRows,
-  newMembersDisplayValues,
+  newMembersSectionDisplayEntries,
+  newMembersSectionEntries,
+  otherSectionEntries,
   parseTalkResponseStatus,
   splitNewMembersTemplateBody,
   serializeAnnouncementRows,
@@ -104,6 +106,18 @@ function agendaNavItems(kind: SacramentMeetingProgramKind): {
   ];
 }
 
+function dedupeNewMembersEntries(
+  entries: { familyName: string; familyMembers: string }[],
+): { familyName: string; familyMembers: string }[] {
+  const seen = new Set<string>();
+  return entries.filter((e) => {
+    const key = `${e.familyName}::${e.familyMembers}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function serializeSacramentDraft(input: {
   program: SacramentProgramBody;
   presiding: string | null;
@@ -140,15 +154,45 @@ function serializeSacramentDraft(input: {
   });
 }
 
+/**
+ * Role pool defaults are a convenience for Sundays that have no saved meeting yet.
+ * Once a meeting exists, a cleared field must stay cleared instead of being
+ * refilled from the pool on the next load.
+ */
+function hydratedRoleAssignments(bundle: SacramentPageBundle): {
+  presiding: string | null;
+  conducting: string | null;
+  chorister: string | null;
+  organist: string | null;
+} {
+  const m = bundle.meeting;
+  const pool = bundle.rolePool;
+  if (m) {
+    return {
+      presiding: m.presiding_member_id ?? null,
+      conducting: m.conducting_id ?? null,
+      chorister: m.chorister_member_id ?? null,
+      organist: m.organist_member_id ?? null,
+    };
+  }
+  return {
+    presiding: firstPoolMember(pool?.presiding ?? []),
+    conducting: firstPoolMember(pool?.conducting ?? []),
+    chorister: firstPoolMember(pool?.chorister ?? []),
+    organist: firstPoolMember(pool?.organist ?? []),
+  };
+}
+
 function snapshotFromBundle(bundle: SacramentPageBundle): string {
   const m = bundle.meeting;
   const program = m?.program ? { ...m.program } : { ...DEFAULT_SACRAMENT_PROGRAM };
+  const roles = hydratedRoleAssignments(bundle);
   return serializeSacramentDraft({
     program,
-    presiding: m?.presiding_member_id ?? null,
-    conducting: m?.conducting_id ?? null,
-    chorister: m?.chorister_member_id ?? null,
-    organist: m?.organist_member_id ?? null,
+    presiding: roles.presiding,
+    conducting: roles.conducting,
+    chorister: roles.chorister,
+    organist: roles.organist,
     openingPrayer: m?.opening_prayer_member_id ?? null,
     closingPrayer: m?.closing_prayer_member_id ?? null,
     openingPrayerResponse: parseTalkResponseStatus(m?.opening_prayer_response_status),
@@ -521,6 +565,7 @@ export function SacramentClient({
   const [formLang, setFormLangState] = useState<SacramentFormLang>("es");
   const [wardAddModalOpen, setWardAddModalOpen] = useState(false);
   const [wardEditSectionId, setWardEditSectionId] = useState<string | null>(null);
+  const [wardAddKind, setWardAddKind] = useState<WardBusinessSectionKind | null>(null);
   const [wardSectionToRemove, setWardSectionToRemove] = useState<string | null>(null);
   const [autosaveReady, setAutosaveReady] = useState(false);
   const lastSavedRef = useRef<string>("");
@@ -698,13 +743,13 @@ export function SacramentClient({
     }
 
     const m = bundle.meeting;
-    const pool = bundle.rolePool;
+    const roles = hydratedRoleAssignments(bundle);
+    setPresiding(roles.presiding);
+    setConducting(roles.conducting);
+    setChorister(roles.chorister);
+    setOrganist(roles.organist);
     if (m) {
       setProgram(m.program);
-      setPresiding(m.presiding_member_id ?? firstPoolMember(pool?.presiding ?? []));
-      setConducting(m.conducting_id ?? firstPoolMember(pool?.conducting ?? []));
-      setChorister(m.chorister_member_id ?? firstPoolMember(pool?.chorister ?? []));
-      setOrganist(m.organist_member_id ?? firstPoolMember(pool?.organist ?? []));
       setOpeningPrayer(m.opening_prayer_member_id);
       setClosingPrayer(m.closing_prayer_member_id);
       setOpeningPrayerResponse(parseTalkResponseStatus(m.opening_prayer_response_status));
@@ -715,10 +760,6 @@ export function SacramentClient({
       setClosingPrayerFulfilled(m.closing_prayer_fulfilled ?? null);
     } else {
       setProgram({ ...DEFAULT_SACRAMENT_PROGRAM });
-      setPresiding(firstPoolMember(pool?.presiding ?? []));
-      setConducting(firstPoolMember(pool?.conducting ?? []));
-      setChorister(firstPoolMember(pool?.chorister ?? []));
-      setOrganist(firstPoolMember(pool?.organist ?? []));
       setOpeningPrayer(null);
       setClosingPrayer(null);
       setOpeningPrayerResponse("pending");
@@ -745,13 +786,13 @@ export function SacramentClient({
     if (!displayWeekBundle) return;
     setAutosaveReady(false);
     const m = displayWeekBundle.meeting;
-    const pool = displayWeekBundle.rolePool;
+    const roles = hydratedRoleAssignments(displayWeekBundle);
+    setPresiding(roles.presiding);
+    setConducting(roles.conducting);
+    setChorister(roles.chorister);
+    setOrganist(roles.organist);
     if (m) {
       setProgram(m.program);
-      setPresiding(m.presiding_member_id ?? firstPoolMember(pool?.presiding ?? []));
-      setConducting(m.conducting_id ?? firstPoolMember(pool?.conducting ?? []));
-      setChorister(m.chorister_member_id ?? firstPoolMember(pool?.chorister ?? []));
-      setOrganist(m.organist_member_id ?? firstPoolMember(pool?.organist ?? []));
       setOpeningPrayer(m.opening_prayer_member_id);
       setClosingPrayer(m.closing_prayer_member_id);
       setOpeningPrayerResponse(parseTalkResponseStatus(m.opening_prayer_response_status));
@@ -762,10 +803,6 @@ export function SacramentClient({
       setClosingPrayerFulfilled(m.closing_prayer_fulfilled ?? null);
     } else {
       setProgram({ ...DEFAULT_SACRAMENT_PROGRAM });
-      setPresiding(firstPoolMember(pool?.presiding ?? []));
-      setConducting(firstPoolMember(pool?.conducting ?? []));
-      setChorister(firstPoolMember(pool?.chorister ?? []));
-      setOrganist(firstPoolMember(pool?.organist ?? []));
       setOpeningPrayer(null);
       setClosingPrayer(null);
       setOpeningPrayerResponse("pending");
@@ -1194,6 +1231,8 @@ export function SacramentClient({
       body: string;
       templateKey?: string;
       newMembersNames?: string;
+      newMembersEntries?: { familyName: string; familyMembers: string }[];
+      otherEntries?: string[];
       sustainingEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
       releaseEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
       ordinationEntries?: { memberId: string; office: "deacon" | "teacher" | "priest" | "" }[];
@@ -1316,6 +1355,48 @@ export function SacramentClient({
             };
           }
         }
+        const newMembersEntries = (section.newMembersEntries ?? [])
+          .map((e) => ({
+            familyName: e.familyName?.trim() ?? "",
+            familyMembers: e.familyMembers?.trim() ?? "",
+          }))
+          .filter((e) => e.familyName || e.familyMembers);
+        const otherEntries = (section.otherEntries ?? [])
+          .map((e) => e?.trim() ?? "")
+          .filter(Boolean);
+
+        // New families and "other" items belong under one heading each, so fold them
+        // into the existing section rather than repeating the heading.
+        if (section.kind === "new_members" || section.kind === "other") {
+          const existingIdx = cur.findIndex((s) => s.kind === section.kind);
+          if (existingIdx >= 0) {
+            const existing = cur[existingIdx];
+            const nextSections = [...cur];
+            nextSections[existingIdx] =
+              section.kind === "new_members"
+                ? {
+                    ...existing,
+                    newMembersEntries: dedupeNewMembersEntries([
+                      ...newMembersSectionEntries(existing),
+                      ...newMembersEntries,
+                    ]),
+                  }
+                : {
+                    ...existing,
+                    otherEntries: [
+                      ...new Set([...otherSectionEntries(existing), ...otherEntries]),
+                    ],
+                  };
+            return {
+              ...p,
+              wardBusiness: "",
+              releases: "",
+              sustainings: "",
+              wardBusinessSections: nextSections,
+            };
+          }
+        }
+
         if (cur.length >= MAX_WARD_BUSINESS_SECTIONS) return p;
         return {
           ...p,
@@ -1330,7 +1411,13 @@ export function SacramentClient({
               title: section.title,
               body: section.body,
               templateKey: section.templateKey ?? defaultTemplateKeyForWardKind(section.kind) ?? undefined,
-              ...(section.kind === "new_members" ? { newMembersNames: section.newMembersNames ?? "" } : {}),
+              ...(section.kind === "new_members"
+                ? {
+                    newMembersNames: section.newMembersNames ?? "",
+                    ...(newMembersEntries.length > 0 ? { newMembersEntries } : {}),
+                  }
+                : {}),
+              ...(section.kind === "other" && otherEntries.length > 0 ? { otherEntries } : {}),
               ...sustaining,
               ...releases,
               ...ordinations,
@@ -1357,6 +1444,8 @@ export function SacramentClient({
         body: string;
         templateKey?: string;
         newMembersNames?: string;
+        newMembersEntries?: { familyName: string; familyMembers: string }[];
+        otherEntries?: string[];
         sustainingEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
         releaseEntries?: { memberId: string; callingPositionId: string; linkGroupId?: string }[];
         ordinationEntries?: { memberId: string; office: "deacon" | "teacher" | "priest" | "" }[];
@@ -1395,7 +1484,17 @@ export function SacramentClient({
           title: section.title,
           body: section.body,
           templateKey: section.templateKey ?? defaultTemplateKeyForWardKind(section.kind) ?? undefined,
-          ...(section.kind === "new_members" ? { newMembersNames: section.newMembersNames ?? "" } : {}),
+          ...(section.kind === "new_members"
+            ? {
+                newMembersNames: section.newMembersNames ?? "",
+                ...((section.newMembersEntries ?? []).length > 0
+                  ? { newMembersEntries: section.newMembersEntries }
+                  : {}),
+              }
+            : {}),
+          ...(section.kind === "other" && (section.otherEntries ?? []).length > 0
+            ? { otherEntries: section.otherEntries }
+            : {}),
           ...(section.kind === "sustainings" && sustainingEntries.length > 0 ? { sustainingEntries } : {}),
           ...(section.kind === "releases" && releaseEntries.length > 0 ? { releaseEntries } : {}),
           ...(section.kind === "aaron_priesthood_ordination" && ordinationEntries.length > 0
@@ -1419,6 +1518,13 @@ export function SacramentClient({
     () => (program.wardBusinessSections ?? []).find((s) => s.id === wardEditSectionId) ?? null,
     [program.wardBusinessSections, wardEditSectionId],
   );
+
+  /** Kinds whose entries fold into the existing section, so capacity does not apply. */
+  const wardAddMergesIntoExistingSection = useMemo(() => {
+    if (!wardAddKind) return false;
+    if (wardAddKind === "new_members" || wardAddKind === "other") return false;
+    return (program.wardBusinessSections ?? []).some((s) => s.kind === wardAddKind);
+  }, [program.wardBusinessSections, wardAddKind]);
 
   const addSpeakerSlot = useCallback(() => {
     setSpeakers((prev) => {
@@ -1891,8 +1997,11 @@ export function SacramentClient({
                       })()
                     : (sec.templateKey ? sectionTemplateBodyByKey.get(sec.templateKey) : null) ??
                       sec.body;
-                const newMembersParsed =
-                  sec.kind === "new_members" ? newMembersDisplayValues(sec, formLang) : null;
+                const newMembersRows =
+                  sec.kind === "new_members"
+                    ? newMembersSectionDisplayEntries(sec, formLang)
+                    : [];
+                const otherLines = sec.kind === "other" ? otherSectionEntries(sec) : [];
                 const newMembersTemplateParts =
                   sec.kind === "new_members"
                     ? splitNewMembersTemplateBody(
@@ -1917,6 +2026,20 @@ export function SacramentClient({
                         type="button"
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-base leading-none hover:bg-surface-hover"
                         onClick={() => {
+                          setWardEditSectionId(null);
+                          setWardAddKind(sec.kind);
+                          setWardAddModalOpen(true);
+                        }}
+                        aria-label={formT(formLang, { en: "Add to this section", es: "Agregar a esta sección" })}
+                        title={formT(formLang, { en: "Add to this section", es: "Agregar a esta sección" })}
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-base leading-none hover:bg-surface-hover"
+                        onClick={() => {
+                          setWardAddKind(null);
                           setWardEditSectionId(sec.id);
                           setWardAddModalOpen(true);
                         }}
@@ -1938,7 +2061,18 @@ export function SacramentClient({
                       </button>
                     </div>
                   </div>
-                  {sec.kind !== "aaron_priesthood_ordination" && sec.kind !== "new_members" ? (
+                  {sec.kind === "other" ? (
+                    <div className="space-y-1.5">
+                      {otherLines.map((line, i) => (
+                        <div
+                          key={`${sec.id}-other-${i}`}
+                          className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap"
+                        >
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  ) : sec.kind !== "aaron_priesthood_ordination" && sec.kind !== "new_members" ? (
                     <div className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
                       {displayBody}
                     </div>
@@ -1987,13 +2121,16 @@ export function SacramentClient({
                           {newMembersTemplateParts.before}
                         </p>
                       ) : null}
-                      <ReadonlyPairRow
-                        leftLabel={formT(formLang, { en: "Family name", es: "Apellido de familia" })}
-                        rightLabel={formT(formLang, { en: "Members", es: "Integrantes" })}
-                        leftValue={newMembersParsed?.familyName ?? ""}
-                        rightValue={newMembersParsed?.familyMembers ?? ""}
-                        showLabels
-                      />
+                      {newMembersRows.map((row, i) => (
+                        <ReadonlyPairRow
+                          key={`${sec.id}-newm-${i}`}
+                          leftLabel={formT(formLang, { en: "Family name", es: "Apellido de familia" })}
+                          rightLabel={formT(formLang, { en: "Members", es: "Integrantes" })}
+                          leftValue={row.familyName}
+                          rightValue={row.familyMembers}
+                          showLabels={i === 0}
+                        />
+                      ))}
                       {newMembersTemplateParts?.after ? (
                         <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
                           {newMembersTemplateParts.after}
@@ -2054,6 +2191,7 @@ export function SacramentClient({
                 disabled={(program.wardBusinessSections?.length ?? 0) >= MAX_WARD_BUSINESS_SECTIONS}
                 onClick={() => {
                   setWardEditSectionId(null);
+                  setWardAddKind(null);
                   setWardAddModalOpen(true);
                 }}
               >
@@ -2247,6 +2385,7 @@ export function SacramentClient({
         onClose={() => {
           setWardAddModalOpen(false);
           setWardEditSectionId(null);
+          setWardAddKind(null);
         }}
         formLang={formLang}
         members={allMembers}
@@ -2265,8 +2404,13 @@ export function SacramentClient({
             queryClient.setQueryData(pageQueryKey, { ...bundle, callingPositions: next });
           }
         }}
-        atCapacity={!editingSection && (program.wardBusinessSections?.length ?? 0) >= MAX_WARD_BUSINESS_SECTIONS}
+        atCapacity={
+          !editingSection &&
+          !wardAddMergesIntoExistingSection &&
+          (program.wardBusinessSections?.length ?? 0) >= MAX_WARD_BUSINESS_SECTIONS
+        }
         editingSection={editingSection}
+        initialKind={wardAddKind}
         onConfirm={(section) => {
           if (wardEditSectionId) {
             updateWardBusinessSection(wardEditSectionId, section);
@@ -2275,6 +2419,7 @@ export function SacramentClient({
           }
           setWardAddModalOpen(false);
           setWardEditSectionId(null);
+          setWardAddKind(null);
         }}
       />
 

@@ -39,8 +39,12 @@ export type WardBusinessSection = {
   ordinationEntries?: { memberId: string; office: AaronicOffice }[];
   /** Text template key resolved at render-time from DB templates table. */
   templateKey?: string;
-  /** For `new_members`, holds the inserted family/names text. */
+  /** @deprecated Single-family storage; migrated into `newMembersEntries` on parse. */
   newMembersNames?: string;
+  /** Multi-family new members support (preferred over `newMembersNames`). */
+  newMembersEntries?: { familyName: string; familyMembers: string }[];
+  /** Multi-item support for `other` (baby blessings, confirmations…); preferred over `body`. */
+  otherEntries?: string[];
 };
 
 /** Max number of ward-business subsections (Relevos, Sostenimientos, etc.). */
@@ -218,6 +222,46 @@ export function newMembersDisplayValues(
   };
 }
 
+/** Every family listed in a `new_members` section, migrating legacy single-family storage. */
+export function newMembersSectionEntries(
+  section: Pick<WardBusinessSection, "newMembersEntries" | "newMembersNames" | "body">,
+): { familyName: string; familyMembers: string }[] {
+  const entries = (section.newMembersEntries ?? [])
+    .map((e) => ({
+      familyName: e.familyName?.trim() ?? "",
+      familyMembers: e.familyMembers?.trim() ?? "",
+    }))
+    .filter((e) => e.familyName || e.familyMembers);
+  if (entries.length > 0) return entries;
+
+  const legacy = parseNewMembersNames(section.newMembersNames?.trim() || section.body?.trim() || "");
+  return legacy.familyName || legacy.familyMembers ? [legacy] : [];
+}
+
+/** Localized family rows for a `new_members` section, ready to render or print. */
+export function newMembersSectionDisplayEntries(
+  section: Pick<WardBusinessSection, "newMembersEntries" | "newMembersNames" | "body">,
+  lang: SacramentFormLang,
+): { familyName: string; familyMembers: string }[] {
+  return newMembersSectionEntries(section).map((e) => ({
+    familyName: e.familyName,
+    familyMembers: localizeNewMembersMembersLine(e.familyMembers, lang),
+  }));
+}
+
+/**
+ * Every item listed in an `other` section. Legacy bodies stay a single item because
+ * they may be multi-line prose about one event.
+ */
+export function otherSectionEntries(
+  section: Pick<WardBusinessSection, "otherEntries" | "body">,
+): string[] {
+  const entries = (section.otherEntries ?? []).map((e) => e?.trim() ?? "").filter(Boolean);
+  if (entries.length > 0) return entries;
+  const body = section.body?.trim() ?? "";
+  return body ? [body] : [];
+}
+
 /** Splits ward new-members template around the family/names placeholder for print and preview. */
 export function splitNewMembersTemplateBody(body: string): { before: string; after: string } {
   const text = body.trim();
@@ -320,11 +364,10 @@ export function countWardBusinessSectionPrintRows(sec: WardBusinessSection): num
     return (sec.ordinationEntries ?? []).filter((o) => o.memberId?.trim()).length;
   }
   if (sec.kind === "new_members") {
-    const parsed = parseNewMembersNames(sec.newMembersNames?.trim() || sec.body?.trim() || "");
-    return parsed.familyName.trim() || parsed.familyMembers.trim() ? 1 : 0;
+    return newMembersSectionEntries(sec).length;
   }
   if (sec.kind === "other") {
-    return sec.body?.trim() ? 1 : 0;
+    return otherSectionEntries(sec).length;
   }
   return 0;
 }
@@ -350,6 +393,75 @@ export function sortWardBusinessSectionsForPrint(sections: WardBusinessSection[]
       return a.idx - b.idx;
     })
     .map(({ sec }) => sec);
+}
+
+function dedupeByKey<T>(items: T[], key: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const k = key(item);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
+/**
+ * Collapses repeated sections of the same kind into a single section, so a ward gets
+ * one "Nuevos miembros" / "Otros" block listing every family or event instead of a
+ * separate heading per entry.
+ */
+export function mergeDuplicateWardBusinessSections(
+  sections: WardBusinessSection[],
+): WardBusinessSection[] {
+  const byKind = new Map<WardBusinessSectionKind, WardBusinessSection>();
+  const order: WardBusinessSectionKind[] = [];
+
+  for (const sec of sections) {
+    const existing = byKind.get(sec.kind);
+    if (!existing) {
+      const seeded: WardBusinessSection = { ...sec };
+      if (sec.kind === "new_members") {
+        seeded.newMembersEntries = newMembersSectionEntries(sec);
+      }
+      if (sec.kind === "other") {
+        seeded.otherEntries = otherSectionEntries(sec);
+      }
+      byKind.set(sec.kind, seeded);
+      order.push(sec.kind);
+      continue;
+    }
+
+    if (sec.kind === "releases") {
+      existing.releaseEntries = dedupeByKey(
+        [...(existing.releaseEntries ?? []), ...(sec.releaseEntries ?? [])],
+        (e) => `${e.memberId}::${e.callingPositionId}::${e.linkGroupId ?? ""}`,
+      );
+    } else if (sec.kind === "sustainings") {
+      existing.sustainingEntries = dedupeByKey(
+        [...(existing.sustainingEntries ?? []), ...(sec.sustainingEntries ?? [])],
+        (e) => `${e.memberId}::${e.callingPositionId}::${e.linkGroupId ?? ""}`,
+      );
+    } else if (sec.kind === "aaron_priesthood_ordination") {
+      existing.ordinationEntries = dedupeByKey(
+        [...(existing.ordinationEntries ?? []), ...(sec.ordinationEntries ?? [])],
+        (e) => `${e.memberId}::${e.office}`,
+      );
+    } else if (sec.kind === "new_members") {
+      existing.newMembersEntries = dedupeByKey(
+        [...(existing.newMembersEntries ?? []), ...newMembersSectionEntries(sec)],
+        (e) => `${e.familyName}::${e.familyMembers}`,
+      );
+    } else {
+      existing.otherEntries = dedupeByKey(
+        [...(existing.otherEntries ?? []), ...otherSectionEntries(sec)],
+        (e) => e,
+      );
+    }
+  }
+
+  return order.map((kind) => byKind.get(kind)!);
 }
 
 export function defaultTemplateKeyForWardKind(kind: WardBusinessSectionKind): string | null {
@@ -380,6 +492,19 @@ export type WardBusinessOrdinationRow = {
   office: AaronicOffice;
 };
 
+/** Nuevos miembros: one row per family inside a single section. */
+export type WardBusinessNewMembersRow = {
+  id: string;
+  familyName: string;
+  familyMembers: string;
+};
+
+/** Otros: one row per event (baby blessing, confirmation…) inside a single section. */
+export type WardBusinessOtherRow = {
+  id: string;
+  text: string;
+};
+
 /** Values collected in the “add ward business section” modal before building `body`. */
 export type WardBusinessModalFields = {
   /** Sostenimientos / ordenación: ward member for scripted name line. */
@@ -387,15 +512,16 @@ export type WardBusinessModalFields = {
   /** Sostenimientos: `calling_positions.id` for [Cargo] line. */
   callingPositionId: string | null;
   aaronicOffice: AaronicOffice;
-  familyName: string;
-  familyMembers: string;
   /** Relevos: one row per person (nombre + cargo). */
   releaseRows: WardBusinessReleaseRow[];
   /** Sostenimientos: one row per person (nombre + cargo); optional link_group_id for companions. */
   sustainingRows: WardBusinessReleaseRow[];
   /** Ordenación: one row per person (nombre + oficio). */
   ordinationRows: WardBusinessOrdinationRow[];
-  otherDetails: string;
+  /** Nuevos miembros: one row per family. */
+  newMembersRows: WardBusinessNewMembersRow[];
+  /** Otros: one row per event. */
+  otherRows: WardBusinessOtherRow[];
 };
 
 export function newWardBusinessReleaseRow(): WardBusinessReleaseRow {
@@ -406,17 +532,24 @@ export function newWardBusinessOrdinationRow(): WardBusinessOrdinationRow {
   return { id: newWardSectionId(), member_id: null, office: "" };
 }
 
+export function newWardBusinessNewMembersRow(): WardBusinessNewMembersRow {
+  return { id: newWardSectionId(), familyName: "", familyMembers: "" };
+}
+
+export function newWardBusinessOtherRow(): WardBusinessOtherRow {
+  return { id: newWardSectionId(), text: "" };
+}
+
 export function initialWardBusinessModalFields(): WardBusinessModalFields {
   return {
     personMemberId: null,
     callingPositionId: null,
     aaronicOffice: "",
-    familyName: "",
-    familyMembers: "",
     releaseRows: [newWardBusinessReleaseRow()],
     sustainingRows: [newWardBusinessReleaseRow()],
     ordinationRows: [newWardBusinessOrdinationRow()],
-    otherDetails: "",
+    newMembersRows: [newWardBusinessNewMembersRow()],
+    otherRows: [newWardBusinessOtherRow()],
   };
 }
 
@@ -436,10 +569,10 @@ export function buildWardBusinessSectionFromModal(
   const title = "";
 
   if (kind === "other") {
-    const d = fields.otherDetails.trim();
+    const items = fields.otherRows.map((r) => r.text.trim()).filter(Boolean);
     return {
       title,
-      body: d || defaultWardBusinessSectionBody("other", lang),
+      body: items.length > 0 ? items.join("\n") : defaultWardBusinessSectionBody("other", lang),
     };
   }
 
@@ -448,9 +581,10 @@ export function buildWardBusinessSectionFromModal(
   }
 
   if (kind === "new_members") {
+    const first = fields.newMembersRows[0];
     return {
       title,
-      body: formatNewMembersNames(fields.familyName, fields.familyMembers),
+      body: first ? formatNewMembersNames(first.familyName, first.familyMembers) : "",
     };
   }
 
@@ -493,6 +627,26 @@ function parseWardBusinessSectionsArray(raw: unknown): WardBusinessSection[] {
     }
     if (typeof row.newMembersNames === "string" && row.newMembersNames.trim().length > 0) {
       section.newMembersNames = row.newMembersNames.trim();
+    }
+    const newMembersEntries = Array.isArray(row.newMembersEntries)
+      ? row.newMembersEntries
+          .filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object")
+          .map((e) => ({
+            familyName: typeof e.familyName === "string" ? e.familyName.trim() : "",
+            familyMembers: typeof e.familyMembers === "string" ? e.familyMembers.trim() : "",
+          }))
+          .filter((e) => e.familyName || e.familyMembers)
+      : [];
+    if (newMembersEntries.length > 0) {
+      section.newMembersEntries = newMembersEntries;
+    }
+    const otherEntries = Array.isArray(row.otherEntries)
+      ? row.otherEntries
+          .map((e) => (typeof e === "string" ? e.trim() : ""))
+          .filter((e) => e.length > 0)
+      : [];
+    if (otherEntries.length > 0) {
+      section.otherEntries = otherEntries;
     }
     const releaseEntries = Array.isArray(row.releaseEntries)
       ? row.releaseEntries
@@ -597,6 +751,7 @@ export function parseSacramentProgram(raw: unknown): SacramentProgramBody {
   } else {
     wardBusinessSections = migrateLegacyWardBusinessToSections(legacyReleases, legacySustainings, legacyWardBusiness);
   }
+  wardBusinessSections = mergeDuplicateWardBusinessSections(wardBusinessSections);
 
   return {
     greetingNote: str("greetingNote"),

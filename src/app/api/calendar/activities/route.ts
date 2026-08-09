@@ -197,6 +197,12 @@ export async function POST(req: Request) {
 
   const activity = normalizeActivityRow(savedRow);
 
+  // The activity row is already committed. Announcement syncing is a secondary
+  // effect, so a failure here must not report the save as failed — otherwise the
+  // user retries and creates duplicates.
+  let syncWarning: string | null = null;
+  let syncedActivity = activity;
+
   try {
     const { syncedText, syncedWeeks } = await syncActivitySacramentAnnouncement(
       supabase,
@@ -213,24 +219,28 @@ export async function POST(req: Request) {
         last_synced_sacrament_weeks: syncedWeeks,
       })
       .eq("id", activity.id)
+      .eq("ward_id", input.wardId)
       .select("*")
       .single();
 
-    if (syncErr) return NextResponse.json({ ok: false, error: syncErr.message }, { status: 400 });
-
-    revalidatePath("/calendar");
-    revalidatePath("/sacrament");
-
-    return NextResponse.json({
-      ok: true,
-      activity: normalizeActivityRow(finalRow as Record<string, unknown>),
-    });
+    if (syncErr) {
+      syncWarning = syncErr.message;
+    } else if (finalRow) {
+      syncedActivity = normalizeActivityRow(finalRow as Record<string, unknown>);
+    }
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Failed to sync sacrament announcement" },
-      { status: 400 },
-    );
+    syncWarning =
+      e instanceof Error ? e.message : "Failed to sync sacrament announcement";
   }
+
+  revalidatePath("/calendar");
+  revalidatePath("/sacrament");
+
+  return NextResponse.json({
+    ok: true,
+    activity: syncedActivity,
+    ...(syncWarning ? { warning: syncWarning } : {}),
+  });
 }
 
 export async function DELETE(req: Request) {
@@ -263,6 +273,7 @@ export async function DELETE(req: Request) {
 
   const activity = normalizeActivityRow(existing as Record<string, unknown>);
 
+  let syncWarning: string | null = null;
   try {
     await removeActivitySacramentAnnouncement(
       supabase,
@@ -271,10 +282,8 @@ export async function DELETE(req: Request) {
       activity.last_synced_sacrament_weeks,
     );
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : "Failed to remove sacrament announcement" },
-      { status: 400 },
-    );
+    syncWarning =
+      e instanceof Error ? e.message : "Failed to remove sacrament announcement";
   }
 
   const { error: delErr } = await supabase
@@ -288,5 +297,5 @@ export async function DELETE(req: Request) {
   revalidatePath("/calendar");
   revalidatePath("/sacrament");
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, ...(syncWarning ? { warning: syncWarning } : {}) });
 }

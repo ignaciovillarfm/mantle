@@ -64,6 +64,7 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/calendar") ||
     request.nextUrl.pathname.startsWith("/api/calendar") ||
     request.nextUrl.pathname.startsWith("/api/youth-activities") ||
+    request.nextUrl.pathname.startsWith("/api/youth-classes") ||
     request.nextUrl.pathname.startsWith("/api/members") ||
     request.nextUrl.pathname.startsWith("/api/callings") ||
     request.nextUrl.pathname.startsWith("/api/calling-positions") ||

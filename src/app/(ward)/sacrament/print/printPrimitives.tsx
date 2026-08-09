@@ -1,6 +1,7 @@
 import { combineWardBusinessEntries } from "@/lib/sacrament/combineWardBusinessEntries";
 import {
-  newMembersDisplayValues,
+  newMembersSectionDisplayEntries,
+  otherSectionEntries,
   splitNewMembersTemplateBody,
   wardBusinessSectionDefaultTitle,
   type SacramentFormLang,
@@ -89,7 +90,9 @@ export function WardBusinessPrintBody({
         const tpText = sectionTemplateText("ward.ordination.teacher_priest", sectionTemplates, lang);
         const newMembersTemplate =
           sec.kind === "new_members" ? splitNewMembersTemplateBody(templateText) : { before: "", after: "" };
-        const newMembersParsed = sec.kind === "new_members" ? newMembersDisplayValues(sec, lang) : null;
+        const newMembersRows =
+          sec.kind === "new_members" ? newMembersSectionDisplayEntries(sec, lang) : [];
+        const otherLines = sec.kind === "other" ? otherSectionEntries(sec) : [];
         const releaseRows =
           sec.kind === "releases"
             ? combineWardBusinessEntries(
@@ -111,16 +114,22 @@ export function WardBusinessPrintBody({
                   <p className="leading-relaxed whitespace-pre-wrap">{newMembersTemplate.before}</p>
                 ) : null}
                 <TwoColumnTable
-                  rows={[
-                    {
-                      left: newMembersParsed?.familyName ?? "",
-                      right: newMembersParsed?.familyMembers ?? "",
-                    },
-                  ]}
+                  rows={newMembersRows.map((row) => ({
+                    left: row.familyName,
+                    right: row.familyMembers,
+                  }))}
                 />
                 {newMembersTemplate.after ? (
                   <p className="leading-relaxed whitespace-pre-wrap">{newMembersTemplate.after}</p>
                 ) : null}
+              </div>
+            ) : sec.kind === "other" ? (
+              <div className="space-y-1.5">
+                {otherLines.map((line, i) => (
+                  <p key={`${sec.id}-other-${i}`} className="leading-relaxed whitespace-pre-wrap">
+                    {line}
+                  </p>
+                ))}
               </div>
             ) : commonText ? (
               <p className="leading-relaxed whitespace-pre-wrap">{commonText}</p>

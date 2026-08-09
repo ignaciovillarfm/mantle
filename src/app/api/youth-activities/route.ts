@@ -88,7 +88,8 @@ export async function POST(req: Request) {
         const activityDate = parseDate(item.activityDate);
         const title = trimStr(item.title);
         if (!activityDate || !title) return null;
-        const endDate = parseDate(item.endDate);
+        const parsedEnd = parseDate(item.endDate);
+        const endDate = parsedEnd && parsedEnd >= activityDate ? parsedEnd : null;
         return {
           ward_id: wardId,
           activity_date: activityDate,

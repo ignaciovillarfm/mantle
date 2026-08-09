@@ -12,6 +12,106 @@ function trimStr(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+export async function PATCH(req: Request) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (!isRecord(body)) {
+    return NextResponse.json({ ok: false, error: "Invalid body" }, { status: 400 });
+  }
+
+  const id = trimStr(body.id);
+  const name = trimStr(body.name);
+
+  if (!id) {
+    return NextResponse.json({ ok: false, error: "id is required" }, { status: 400 });
+  }
+  if (!name) {
+    return NextResponse.json({ ok: false, error: "name is required" }, { status: 400 });
+  }
+  if (typeof body.isYouth !== "boolean") {
+    return NextResponse.json({ ok: false, error: "isYouth must be a boolean" }, { status: 400 });
+  }
+  const isYouth = body.isYouth;
+
+  const supabase = await createClient();
+
+  // The member's own ward is the source of truth, so a client cannot move a
+  // member into a ward it happens to have access to.
+  const { data: existing, error: loadErr } = await supabase
+    .from("members")
+    .select("id, ward_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (loadErr) {
+    return NextResponse.json({ ok: false, error: loadErr.message }, { status: 400 });
+  }
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: "Member not found" }, { status: 404 });
+  }
+
+  const wardId = existing.ward_id as string;
+
+  try {
+    await assertWardLeadership(wardId);
+  } catch {
+    return NextResponse.json({ ok: false, error: "Not authorized for this ward" }, { status: 403 });
+  }
+
+  const { data: wardMembers, error: dupErr } = await supabase
+    .from("members")
+    .select("id, name")
+    .eq("ward_id", wardId);
+
+  if (dupErr) {
+    return NextResponse.json({ ok: false, error: dupErr.message }, { status: 400 });
+  }
+
+  const normalizedNext = normalizeMemberNameForCompare(name);
+  const duplicate = (wardMembers ?? []).find(
+    (m) =>
+      (m.id as string) !== id &&
+      normalizeMemberNameForCompare(String(m.name ?? "")) === normalizedNext,
+  );
+  if (duplicate) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Another member with this name already exists in the ward",
+        duplicateId: duplicate.id,
+      },
+      { status: 409 },
+    );
+  }
+
+  const { data: updated, error: updErr } = await supabase
+    .from("members")
+    .update({ name, is_youth: isYouth })
+    .eq("id", id)
+    .eq("ward_id", wardId)
+    .select("id, name, is_youth")
+    .single();
+
+  if (updErr) {
+    return NextResponse.json({ ok: false, error: updErr.message }, { status: 400 });
+  }
+
+  revalidatePath("/members");
+  return NextResponse.json({
+    ok: true,
+    member: {
+      id: updated.id as string,
+      name: updated.name as string,
+      is_youth: Boolean(updated.is_youth),
+    },
+  });
+}
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
