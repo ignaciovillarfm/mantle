@@ -37,9 +37,12 @@ import {
   localizeNewMembersMembersLine,
   initialWardBusinessModalFields,
   MAX_WARD_BUSINESS_RELEASE_ROWS,
+  newMembersSectionEntries,
+  newWardBusinessNewMembersRow,
   newWardBusinessOrdinationRow,
+  newWardBusinessOtherRow,
   newWardBusinessReleaseRow,
-  parseNewMembersNames,
+  otherSectionEntries,
   wardBusinessSectionDefaultTitle,
   type SacramentFormLang,
   type WardBusinessModalFields,
@@ -324,6 +327,7 @@ export function AddWardBusinessSectionModal({
   onConfirm,
   atCapacity,
   editingSection,
+  initialKind,
 }: {
   open: boolean;
   onClose: () => void;
@@ -347,6 +351,8 @@ export function AddWardBusinessSectionModal({
   }) => void;
   atCapacity: boolean;
   editingSection?: WardBusinessSection | null;
+  /** Preselects (and locks) the type when adding more entries to an existing section. */
+  initialKind?: WardBusinessSectionKind | null;
 }) {
   const [kind, setKind] = useState<WardBusinessSectionKind | "">("");
   const [fields, setFields] = useState<WardBusinessModalFields>(() => initialWardBusinessModalFields());
@@ -376,9 +382,22 @@ export function AddWardBusinessSectionModal({
     setLinkingRowId(null);
     if (editingSection) {
       setKind(editingSection.kind);
+      const newMembersEntries = newMembersSectionEntries(editingSection);
+      const otherEntries = otherSectionEntries(editingSection);
       setFields((prev) => ({
         ...prev,
-        ...parseNewMembersNames(editingSection.newMembersNames ?? ""),
+        newMembersRows:
+          newMembersEntries.length > 0
+            ? newMembersEntries.map((e) => ({
+                id: newWardBusinessNewMembersRow().id,
+                familyName: e.familyName,
+                familyMembers: e.familyMembers,
+              }))
+            : [newWardBusinessNewMembersRow()],
+        otherRows:
+          otherEntries.length > 0
+            ? otherEntries.map((text) => ({ id: newWardBusinessOtherRow().id, text }))
+            : [newWardBusinessOtherRow()],
         releaseRows:
           editingSection.releaseEntries && editingSection.releaseEntries.length > 0
             ? editingSection.releaseEntries.map((e) => ({
@@ -408,9 +427,9 @@ export function AddWardBusinessSectionModal({
       }));
       return;
     }
-    setKind("");
+    setKind(initialKind ?? "");
     setFields(initialWardBusinessModalFields());
-  }, [editingSection, open]);
+  }, [editingSection, initialKind, open]);
 
   const close = useCallback(() => {
     setAddMemberTarget(null);
@@ -482,7 +501,13 @@ export function AddWardBusinessSectionModal({
         office: r.office,
       }))
       .filter((e) => e.memberId && e.office);
-    const newMembersNames = formatNewMembersNames(fields.familyName, fields.familyMembers);
+    const newMembersEntries = fields.newMembersRows
+      .map((r) => ({
+        familyName: r.familyName.trim(),
+        familyMembers: r.familyMembers.trim(),
+      }))
+      .filter((e) => e.familyName || e.familyMembers);
+    const otherEntries = fields.otherRows.map((r) => r.text.trim()).filter(Boolean);
     onConfirm({
       kind,
       title: built.title,
@@ -498,8 +523,17 @@ export function AddWardBusinessSectionModal({
         ? { ordinationEntries }
         : {}),
       ...(kind === "new_members"
-        ? { newMembersNames }
+        ? {
+            newMembersEntries,
+            newMembersNames: newMembersEntries[0]
+              ? formatNewMembersNames(
+                  newMembersEntries[0].familyName,
+                  newMembersEntries[0].familyMembers,
+                )
+              : "",
+          }
         : {}),
+      ...(kind === "other" && otherEntries.length > 0 ? { otherEntries } : {}),
     });
   }, [atCapacity, editingSection, fields, formLang, kind, localizedCallingOptions, members, onConfirm]);
 
@@ -513,7 +547,12 @@ export function AddWardBusinessSectionModal({
             <DialogTitle id="ward-add-section-title">
               {editingSection
                 ? ft(formLang, { en: "Edit ward business section", es: "Editar sección de asuntos del barrio" })
-                : ft(formLang, { en: "Add ward business section", es: "Agregar sección de asuntos del barrio" })}
+                : initialKind
+                  ? ft(formLang, {
+                      en: `Add to ${wardBusinessSectionDefaultTitle(initialKind, formLang)}`,
+                      es: `Agregar a ${wardBusinessSectionDefaultTitle(initialKind, formLang)}`,
+                    })
+                  : ft(formLang, { en: "Add ward business section", es: "Agregar sección de asuntos del barrio" })}
             </DialogTitle>
             <DialogDescription>
               {ft(formLang, {
@@ -540,7 +579,7 @@ export function AddWardBusinessSectionModal({
               </Label>
               <Select
                 value={kind || null}
-                disabled={Boolean(editingSection)}
+                disabled={Boolean(editingSection) || Boolean(initialKind)}
                 onValueChange={(v) => setKind((v ?? "") as WardBusinessSectionKind | "")}
               >
                 <SelectTrigger id="ward-add-kind" className="w-full">
@@ -950,54 +989,99 @@ export function AddWardBusinessSectionModal({
             ) : null}
 
             {kind === "new_members" ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="ward-newm-family" className="mb-1 block">
-                    {ft(formLang, {
-                      en: "Family name",
-                      es: "Apellido de familia",
-                    })}
-                  </Label>
-                  <Input
-                    id="ward-newm-family"
-                    className="mt-1"
-                    value={fields.familyName}
-                    onChange={(e) => setFields((f) => ({ ...f, familyName: e.target.value }))}
-                    placeholder={ft(formLang, {
-                      en: "Surname",
-                      es: "Apellido",
-                    })}
-                  />
+              <div className="space-y-3">
+                <div className="space-y-3 rounded-lg border border-border/80 bg-muted/10 p-3">
+                  {fields.newMembersRows.map((row, rowIndex) => (
+                    <div
+                      key={row.id}
+                      className={cn("space-y-2", rowIndex > 0 && "border-t border-border/70 pt-3")}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <Label htmlFor={`ward-newm-family-${row.id}`} className="mb-1 block">
+                              {ft(formLang, { en: "Family name", es: "Apellido de familia" })}
+                            </Label>
+                            <Input
+                              id={`ward-newm-family-${row.id}`}
+                              className="mt-1"
+                              value={row.familyName}
+                              onChange={(e) =>
+                                setFields((f) => ({
+                                  ...f,
+                                  newMembersRows: f.newMembersRows.map((r) =>
+                                    r.id === row.id ? { ...r, familyName: e.target.value } : r,
+                                  ),
+                                }))
+                              }
+                              placeholder={ft(formLang, { en: "Surname", es: "Apellido" })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor={`ward-newm-members-${row.id}`} className="mb-1 block">
+                              {ft(formLang, { en: "Members", es: "Integrantes" })}
+                            </Label>
+                            <Input
+                              id={`ward-newm-members-${row.id}`}
+                              className="mt-1"
+                              value={row.familyMembers}
+                              onChange={(e) =>
+                                setFields((f) => ({
+                                  ...f,
+                                  newMembersRows: f.newMembersRows.map((r) =>
+                                    r.id === row.id ? { ...r, familyMembers: e.target.value } : r,
+                                  ),
+                                }))
+                              }
+                              placeholder={ft(formLang, {
+                                en: "e.g. Daniel, Maria Paula. Children: Lucy and Teo",
+                                es: "Ej. Daniel, María Paula. Hijos: Lucy y Teo",
+                              })}
+                            />
+                          </div>
+                        </div>
+                        {fields.newMembersRows.length > 1 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className={cn("mt-7 shrink-0", hoverRevealRemoveClassName)}
+                            aria-label={ft(formLang, { en: "Remove family", es: "Quitar familia" })}
+                            onClick={() =>
+                              setFields((f) => ({
+                                ...f,
+                                newMembersRows: f.newMembersRows.filter((r) => r.id !== row.id),
+                              }))
+                            }
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-foreground/65">
+                        {ft(formLang, { en: "Printed line", es: "Línea en el programa" })}:{" "}
+                        {formatNewMembersNames(
+                          row.familyName,
+                          localizeNewMembersMembersLine(row.familyMembers, formLang),
+                        ) || "—"}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-                <div>
-                  <Label htmlFor="ward-newm-members" className="mb-1 block">
-                    {ft(formLang, {
-                      en: "Members",
-                      es: "Integrantes",
-                    })}
-                  </Label>
-                  <Input
-                    id="ward-newm-members"
-                    className="mt-1"
-                    value={fields.familyMembers}
-                    onChange={(e) => setFields((f) => ({ ...f, familyMembers: e.target.value }))}
-                    placeholder={ft(formLang, {
-                      en: "e.g. Daniel, Maria Paula. Children: Lucy and Teo",
-                      es: "Ej. Daniel, María Paula. Hijos: Lucy y Teo",
-                    })}
-                  />
-                </div>
-                <div className="sm:col-span-2 text-xs text-foreground/65">
-                  {ft(formLang, {
-                    en: "Printed line",
-                    es: "Línea en el programa",
-                  })}
-                  :{" "}
-                  {formatNewMembersNames(
-                    fields.familyName,
-                    localizeNewMembersMembersLine(fields.familyMembers, formLang),
-                  ) || "—"}
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={fields.newMembersRows.length >= MAX_WARD_BUSINESS_RELEASE_ROWS}
+                  onClick={() =>
+                    setFields((f) => ({
+                      ...f,
+                      newMembersRows: [...f.newMembersRows, newWardBusinessNewMembersRow()],
+                    }))
+                  }
+                >
+                  {ft(formLang, { en: "Add another family", es: "Agregar otra familia" })}
+                </Button>
               </div>
             ) : null}
 
@@ -1059,21 +1143,75 @@ export function AddWardBusinessSectionModal({
             ) : null}
 
             {kind === "other" ? (
-              <div>
-                <Label htmlFor="ward-other" className="mb-1 block">
-                  {ft(formLang, { en: "Details", es: "Detalles" })}
-                </Label>
-                <Textarea
-                  id="ward-other"
-                  rows={4}
-                  className="mt-1"
-                  value={fields.otherDetails}
-                  onChange={(e) => setFields((f) => ({ ...f, otherDetails: e.target.value }))}
-                  placeholder={ft(formLang, {
-                    en: "Baby blessing, confirmation, ward activity announcement, etc.",
-                    es: "Bendición de bebé, confirmación, otro anuncio, etc.",
-                  })}
-                />
+              <div className="space-y-3">
+                <div className="space-y-3 rounded-lg border border-border/80 bg-muted/10 p-3">
+                  {fields.otherRows.map((row, rowIndex) => (
+                    <div
+                      key={row.id}
+                      className={cn(
+                        "flex items-start gap-2",
+                        rowIndex > 0 && "border-t border-border/70 pt-3",
+                      )}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <Label htmlFor={`ward-other-${row.id}`} className="mb-1 block">
+                          {rowIndex === 0
+                            ? ft(formLang, { en: "Details", es: "Detalles" })
+                            : ft(formLang, { en: "Another item", es: "Otro tema" })}
+                        </Label>
+                        <Textarea
+                          id={`ward-other-${row.id}`}
+                          rows={3}
+                          className="mt-1"
+                          value={row.text}
+                          onChange={(e) =>
+                            setFields((f) => ({
+                              ...f,
+                              otherRows: f.otherRows.map((r) =>
+                                r.id === row.id ? { ...r, text: e.target.value } : r,
+                              ),
+                            }))
+                          }
+                          placeholder={ft(formLang, {
+                            en: "Baby blessing, confirmation, ward activity announcement, etc.",
+                            es: "Bendición de bebé, confirmación, otro anuncio, etc.",
+                          })}
+                        />
+                      </div>
+                      {fields.otherRows.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={cn("mt-7 shrink-0", hoverRevealRemoveClassName)}
+                          aria-label={ft(formLang, { en: "Remove item", es: "Quitar tema" })}
+                          onClick={() =>
+                            setFields((f) => ({
+                              ...f,
+                              otherRows: f.otherRows.filter((r) => r.id !== row.id),
+                            }))
+                          }
+                        >
+                          <Trash2Icon className="size-4" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={fields.otherRows.length >= MAX_WARD_BUSINESS_RELEASE_ROWS}
+                  onClick={() =>
+                    setFields((f) => ({
+                      ...f,
+                      otherRows: [...f.otherRows, newWardBusinessOtherRow()],
+                    }))
+                  }
+                >
+                  {ft(formLang, { en: "Add another item", es: "Agregar otro tema" })}
+                </Button>
               </div>
             ) : null}
           </div>
@@ -1090,7 +1228,9 @@ export function AddWardBusinessSectionModal({
             >
               {editingSection
                 ? ft(formLang, { en: "Save changes", es: "Guardar cambios" })
-                : ft(formLang, { en: "Add section", es: "Agregar sección" })}
+                : initialKind
+                  ? ft(formLang, { en: "Add", es: "Agregar" })
+                  : ft(formLang, { en: "Add section", es: "Agregar sección" })}
             </Button>
           </DialogFooter>
         </DialogContent>

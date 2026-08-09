@@ -40,7 +40,7 @@ export default async function CalendarPage({
   const end = `${month}-${String(endDay).padStart(2, "0")}`;
 
   const supabase = await createClient();
-  const [{ data: activityRows }, { data: memberRows }] = await Promise.all([
+  const [{ data: activityRows, error: activitiesError }, { data: memberRows }] = await Promise.all([
     supabase
       .from("ward_calendar_activities")
       .select("*")
@@ -55,6 +55,14 @@ export default async function CalendarPage({
       .eq("ward_id", wardId)
       .order("name", { ascending: true }),
   ]);
+
+  if (activitiesError) {
+    return (
+      <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-sm text-foreground/70">
+        The ward calendar could not be loaded: {activitiesError.message}
+      </div>
+    );
+  }
 
   const initialActivities = (activityRows ?? []).map((row) =>
     normalizeActivityRow(row as Record<string, unknown>),

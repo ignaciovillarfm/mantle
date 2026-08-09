@@ -108,7 +108,7 @@ export function ActivityFormDialog({
   initialDate: string;
   activity: WardCalendarActivity | null;
   defaultCategory?: WardActivityCategory;
-  onSaved: (activity: WardCalendarActivity) => void;
+  onSaved: (activity: WardCalendarActivity, warning?: string | null) => void;
 }) {
   const [form, setForm] = useState<ActivityFormValues>(() => emptyForm(initialDate, defaultCategory));
   const [busy, setBusy] = useState(false);
@@ -183,12 +183,13 @@ export function ActivityFormDialog({
       const json = (await res.json()) as {
         ok?: boolean;
         error?: string;
+        warning?: string;
         activity?: WardCalendarActivity;
       };
       if (!res.ok || !json.ok || !json.activity) {
         throw new Error(json.error ?? "Failed to save");
       }
-      onSaved(json.activity);
+      onSaved(json.activity, json.warning ?? null);
       onOpenChange(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");

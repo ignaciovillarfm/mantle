@@ -158,7 +158,7 @@ export function CalendarClient({
     }
   }
 
-  function handleSaved(activity: WardCalendarActivity) {
+  function handleSaved(activity: WardCalendarActivity, warning?: string | null) {
     setActivities((prev) => {
       const idx = prev.findIndex((a) => a.id === activity.id);
       if (idx >= 0) {
@@ -168,6 +168,17 @@ export function CalendarClient({
       }
       return [...prev, activity].sort((a, b) => a.activity_date.localeCompare(b.activity_date));
     });
+
+    if (warning) {
+      toast.warning(
+        formT(formLang, {
+          en: `Activity saved, but the sacrament announcement could not be synced: ${warning}`,
+          es: `Actividad guardada, pero no se pudo sincronizar el anuncio sacramental: ${warning}`,
+        }),
+      );
+      return;
+    }
+
     toast.success(
       formT(formLang, {
         en: activity.include_in_sacrament_program

@@ -1,9 +1,12 @@
-import { normalizeYouthActivityRow } from "@/lib/youth/youthActivity";
+import {
+  normalizeBreadAssignmentRow,
+  normalizeRideContactRow,
+} from "@/lib/sacrament/breadAssignment";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
 import { createClient } from "@/lib/supabase/server";
-import { YouthActivitiesClient } from "../YouthActivitiesClient";
+import { SacramentBreadClient } from "../SacramentBreadClient";
 
-export default async function BishopricYouthActivitiesPage() {
+export default async function BishopricSacramentBreadPage() {
   const wardRoles = await fetchUserWardRoles();
   const wardsMap = new Map<string, string>();
   for (const r of wardRoles) {
@@ -24,40 +27,50 @@ export default async function BishopricYouthActivitiesPage() {
   }
 
   const supabase = await createClient();
-  const [{ data: activityRows, error: activitiesError }, { data: memberRows }] = await Promise.all([
+  const [
+    { data: assignmentRows, error: assignmentsError },
+    { data: memberRows },
+    { data: rideContactRow },
+  ] = await Promise.all([
     supabase
-      .from("youth_activities")
+      .from("sacrament_bread_assignments")
       .select("*")
       .eq("ward_id", wardId)
-      .order("activity_date", { ascending: true }),
+      .order("sunday_date", { ascending: true }),
     supabase
       .from("members")
       .select("id, name")
       .eq("ward_id", wardId)
       .order("name", { ascending: true }),
+    supabase
+      .from("sacrament_bread_ride_contacts")
+      .select("*")
+      .eq("ward_id", wardId)
+      .maybeSingle(),
   ]);
 
-  if (activitiesError) {
+  if (assignmentsError) {
     return (
       <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-8 text-center text-sm text-foreground/70">
-        Youth activities could not be loaded: {activitiesError.message}
+        Sacrament bread assignments could not be loaded: {assignmentsError.message}
       </div>
     );
   }
 
-  const activities = (activityRows ?? []).map((row) =>
-    normalizeYouthActivityRow(row as Record<string, unknown>),
-  );
-
   return (
-    <YouthActivitiesClient
+    <SacramentBreadClient
       wardId={wardId}
       wardName={wardName}
-      initialActivities={activities}
+      initialAssignments={(assignmentRows ?? []).map((row) =>
+        normalizeBreadAssignmentRow(row as Record<string, unknown>),
+      )}
       members={(memberRows ?? []).map((m) => ({
         id: m.id as string,
         name: m.name as string,
       }))}
+      initialRideContact={
+        rideContactRow ? normalizeRideContactRow(rideContactRow as Record<string, unknown>) : null
+      }
     />
   );
 }

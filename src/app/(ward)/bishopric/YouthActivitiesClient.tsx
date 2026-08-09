@@ -138,9 +138,9 @@ type FormState = {
   notes: string;
 };
 
-function emptyForm(): FormState {
+function emptyForm(defaultDate = ""): FormState {
   return {
-    activityDate: "",
+    activityDate: defaultDate,
     endDate: "",
     title: "",
     quorum: "combined",
@@ -176,8 +176,9 @@ export function YouthActivitiesClient({
   const [activities, setActivities] = useState(initialActivities);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<YouthActivity | null>(null);
-  const [form, setForm] = useState<FormState>(emptyForm);
+  const [form, setForm] = useState<FormState>(() => emptyForm());
   const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
 
@@ -223,19 +224,30 @@ export function YouthActivitiesClient({
 
   function openAdd() {
     setEditing(null);
-    setForm(emptyForm());
+    setForm(emptyForm(todayIso));
+    setFormError(null);
     setDialogOpen(true);
   }
 
   function openEdit(activity: YouthActivity) {
     setEditing(activity);
     setForm(formFromActivity(activity));
+    setFormError(null);
     setDialogOpen(true);
   }
 
   async function handleSave() {
-    if (!form.activityDate || !form.title.trim()) {
-      toast.error("Date and title are required");
+    setFormError(null);
+    if (!form.activityDate) {
+      setFormError("Pick a date for the activity.");
+      return;
+    }
+    if (!form.title.trim()) {
+      setFormError("Add a title for the activity.");
+      return;
+    }
+    if (form.endDate && form.endDate < form.activityDate) {
+      setFormError("The end date must be on or after the start date.");
       return;
     }
     setBusy(true);
@@ -277,7 +289,9 @@ export function YouthActivitiesClient({
       setDialogOpen(false);
       toast.success("Saved");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save");
+      const message = e instanceof Error ? e.message : "Failed to save";
+      setFormError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -536,6 +550,12 @@ export function YouthActivitiesClient({
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
               />
             </div>
+
+            {formError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {formError}
+              </p>
+            ) : null}
           </div>
 
           <DialogFooter>

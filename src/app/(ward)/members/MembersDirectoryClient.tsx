@@ -1,5 +1,6 @@
 "use client";
 
+import { EditMemberModal, type EditableMember } from "./EditMemberModal";
 import { filterMembersByQuery } from "@/lib/members/memberSearch";
 import { useMemo, useState } from "react";
 
@@ -36,6 +37,7 @@ export function MembersDirectoryClient({
   members: MembersDirectoryRow[];
 }) {
   const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<EditableMember | null>(null);
   const filtered = useMemo(
     () =>
       filterMembersByQuery(
@@ -72,6 +74,9 @@ export function MembersDirectoryClient({
               <th className="px-4 py-2 font-medium">Opening / closing</th>
               <th className="px-4 py-2 font-medium">Prayer notes</th>
               <th className="px-4 py-2 font-medium">Prayed that day</th>
+              <th className="px-4 py-2 font-medium">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -92,11 +97,24 @@ export function MembersDirectoryClient({
                   {truncate(m.lastPrayerNote, 72)}
                 </td>
                 <td className="px-4 py-3 text-foreground/80">{formatDelivered(m.lastPrayerFulfilled)}</td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditing({ id: m.id, name: m.name, is_youth: m.is_youth })
+                    }
+                    className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  >
+                    Edit
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <EditMemberModal member={editing} onClose={() => setEditing(null)} />
       {filtered.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-foreground/50">
           {query.trim() ? "No members match your search." : "No members in this ward."}
