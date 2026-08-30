@@ -81,7 +81,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const SACRAMENT_LANG_STORAGE_KEY = "mantle-sacrament-form-lang";
-const AUTO_SAVE_DEBOUNCE_MS = 1600;
+const AUTO_SAVE_DEBOUNCE_MS = 600;
 
 function agendaNavItems(kind: SacramentMeetingProgramKind): {
   id: string;
@@ -817,6 +817,8 @@ export function SacramentClient({
     setCatalogCallings(displayWeekBundle.callingPositions);
     lastSavedRef.current = snapshotFromBundle(displayWeekBundle);
     setSaveSuccess(false);
+    const id = window.setTimeout(() => setAutosaveReady(true), 0);
+    return () => clearTimeout(id);
   }, [displayWeekIso, effectiveMeetingDate, displayWeekBundle]);
 
   const clearSaveDebounce = useCallback(() => {
@@ -829,44 +831,18 @@ export function SacramentClient({
   /** Immediate save of the latest draft. Returns false only when a user-visible save attempt failed. */
   const flushSave = useCallback(async (opts?: {
     keepalive?: boolean;
-    reason?: "debounce" | "navigate" | "pagehide";
+    reason?: "debounce" | "navigate" | "pagehide" | "unmount";
   }): Promise<boolean> => {
     const reason = opts?.reason ?? "debounce";
     clearSaveDebounce();
     const ready = autosaveReadyRef.current;
     const hasBundle = !!bundleRef.current;
-    if (!ready || !hasBundle) {
-      // #region agent log
-      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-        body: JSON.stringify({
-          sessionId: "e149d7",
-          hypothesisId: "A",
-          location: "SacramentClient.tsx:flushSave:skip",
-          message: "flush skipped — not ready",
-          data: { reason, ready, hasBundle },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
+    const mustPersist =
+      reason === "navigate" || reason === "pagehide" || reason === "unmount";
+    if (!hasBundle || (!ready && !mustPersist)) {
       return true;
     }
     if (saveInFlightRef.current) {
-      // #region agent log
-      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-        body: JSON.stringify({
-          sessionId: "e149d7",
-          hypothesisId: "D",
-          location: "SacramentClient.tsx:flushSave:inflight",
-          message: "flush joined in-flight save",
-          data: { reason },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       return saveInFlightRef.current;
     }
 
@@ -875,27 +851,6 @@ export function SacramentClient({
     const date = effectiveMeetingDateRef.current;
     const next = serializeSacramentDraft(draft);
     const dirty = next !== lastSavedRef.current;
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-      body: JSON.stringify({
-        sessionId: "e149d7",
-        hypothesisId: "B",
-        location: "SacramentClient.tsx:flushSave:enter",
-        message: "flush evaluated",
-        data: {
-          reason,
-          dirty,
-          keepalive: opts?.keepalive === true,
-          wardId,
-          date,
-          announcementsLen: draft.program.announcements?.length ?? -1,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     if (!dirty) return true;
 
     const programForSave: SacramentProgramBody = {
@@ -949,64 +904,16 @@ export function SacramentClient({
           // Unload/keepalive responses may be unreadable; treat transport success as saved.
           if (keepalive && http.ok) {
             lastSavedRef.current = next;
-            // #region agent log
-            fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-              body: JSON.stringify({
-                sessionId: "e149d7",
-                hypothesisId: "C",
-                location: "SacramentClient.tsx:flushSave:result",
-                message: "keepalive ok without JSON body",
-                data: { reason, status: http.status },
-                timestamp: Date.now(),
-              }),
-            }).catch(() => {});
-            // #endregion
             return true;
           }
           if (!keepalive) {
             setSaving(false);
             toast.error(formT(formLangRef.current, { en: "Save failed.", es: "Error al guardar." }));
           }
-          // #region agent log
-          fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-            body: JSON.stringify({
-              sessionId: "e149d7",
-              hypothesisId: "E",
-              location: "SacramentClient.tsx:flushSave:result",
-              message: "flush failed — JSON parse",
-              data: { reason, keepalive, status: http.status },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           return false;
         }
         if (http.ok && res.ok) {
           lastSavedRef.current = next;
-          // #region agent log
-          fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-            body: JSON.stringify({
-              sessionId: "e149d7",
-              hypothesisId: "A",
-              location: "SacramentClient.tsx:flushSave:result",
-              message: "flush ok",
-              data: {
-                reason,
-                keepalive,
-                meetingId: res.meetingId,
-                wardId,
-                date,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           if (!keepalive) {
             setSaving(false);
             setSaveSuccess(true);
@@ -1053,40 +960,12 @@ export function SacramentClient({
           }
           toast.error(msg);
         }
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-          body: JSON.stringify({
-            sessionId: "e149d7",
-            hypothesisId: "E",
-            location: "SacramentClient.tsx:flushSave:result",
-            message: "flush failed — API",
-            data: { reason, keepalive, status: http.status, resOk: res.ok },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         return false;
       } catch {
         if (!keepalive) {
           setSaving(false);
           toast.error(formT(formLangRef.current, { en: "Save failed.", es: "Error al guardar." }));
         }
-        // #region agent log
-        fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-          body: JSON.stringify({
-            sessionId: "e149d7",
-            hypothesisId: "E",
-            location: "SacramentClient.tsx:flushSave:result",
-            message: "flush failed — network",
-            data: { reason, keepalive },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         return false;
       }
     };
@@ -1102,26 +981,47 @@ export function SacramentClient({
     }
   }, [clearSaveDebounce]);
 
+  type RoleAssignmentField = "presiding" | "conducting" | "chorister" | "organist";
+
+  const commitRoleAssignment = useCallback(
+    (field: RoleAssignmentField, value: string | null) => {
+      switch (field) {
+        case "presiding":
+          setPresiding(value);
+          break;
+        case "conducting":
+          setConducting(value);
+          break;
+        case "chorister":
+          setChorister(value);
+          break;
+        case "organist":
+          setOrganist(value);
+          break;
+      }
+      draftRef.current = { ...draftRef.current, [field]: value };
+      clearSaveDebounce();
+      void flushSave({ reason: "debounce" });
+    },
+    [clearSaveDebounce, flushSave],
+  );
+
+  const flushSaveRef = useRef(flushSave);
+  flushSaveRef.current = flushSave;
+
+  useEffect(() => {
+    return () => {
+      clearSaveDebounce();
+      void flushSaveRef.current({ keepalive: true, reason: "unmount" });
+    };
+  }, [clearSaveDebounce]);
+
   useEffect(() => {
     if (!autosaveReady || !bundleRef.current) return;
     const current = serializeSacramentDraft(draftRef.current);
     if (current === lastSavedRef.current) return;
 
     clearSaveDebounce();
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-      body: JSON.stringify({
-        sessionId: "e149d7",
-        hypothesisId: "A",
-        location: "SacramentClient.tsx:autosave:schedule",
-        message: "debounce scheduled",
-        data: { ms: AUTO_SAVE_DEBOUNCE_MS },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     debounceTimerRef.current = window.setTimeout(() => {
       debounceTimerRef.current = null;
       void flushSave({ reason: "debounce" });
@@ -1153,22 +1053,7 @@ export function SacramentClient({
   useEffect(() => {
     const onPageHide = () => {
       const current = serializeSacramentDraft(draftRef.current);
-      const dirty = current !== lastSavedRef.current;
-      // #region agent log
-      fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-        body: JSON.stringify({
-          sessionId: "e149d7",
-          hypothesisId: "C",
-          location: "SacramentClient.tsx:pagehide",
-          message: "pagehide fired",
-          data: { dirty },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-      if (!dirty) return;
+      if (current === lastSavedRef.current) return;
       void flushSave({ keepalive: true, reason: "pagehide" });
     };
     window.addEventListener("pagehide", onPageHide);
@@ -1176,20 +1061,6 @@ export function SacramentClient({
   }, [flushSave]);
 
   const navigateWardDate = async (nextWard: string, nextDate: string) => {
-    // #region agent log
-    fetch("http://127.0.0.1:7702/ingest/bd06d274-2613-4711-9466-3b028482916a", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e149d7" },
-      body: JSON.stringify({
-        sessionId: "e149d7",
-        hypothesisId: "B",
-        location: "SacramentClient.tsx:navigateWardDate",
-        message: "ward/date navigate requested",
-        data: { nextWard, nextDate },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     const ok = await flushSave({ reason: "navigate" });
     if (!ok) return;
     const q = new URLSearchParams();
@@ -1212,16 +1083,24 @@ export function SacramentClient({
     router.push(nextSacramentUrlLive);
   }, [flushSave, handleNextWeekClick, router, nextSacramentUrlLive]);
 
-  const updateProgram = (key: keyof SacramentProgramBody, value: string) => {
-    setProgram((p) => ({ ...p, [key]: value }));
-  };
+  const updateProgram = useCallback((key: keyof SacramentProgramBody, value: string) => {
+    setProgram((p) => {
+      const next = { ...p, [key]: value };
+      draftRef.current = { ...draftRef.current, program: next };
+      return next;
+    });
+  }, []);
 
   const updateTestimonyMessage = useCallback((id: string, custom: string) => {
-    setProgram((p) => ({
-      ...p,
-      testimonyMessageId: id,
-      testimonyMessageCustom: custom,
-    }));
+    setProgram((p) => {
+      const next = {
+        ...p,
+        testimonyMessageId: id,
+        testimonyMessageCustom: custom,
+      };
+      draftRef.current = { ...draftRef.current, program: next };
+      return next;
+    });
   }, []);
 
   const appendWardBusinessSection = useCallback(
@@ -1838,7 +1717,7 @@ export function SacramentClient({
                   lang={formLang}
                   members={presidingOptions}
                   value={presiding}
-                  onChange={setPresiding}
+                  onChange={(id) => commitRoleAssignment("presiding", id)}
                 />
               </div>
               <div>
@@ -1848,7 +1727,7 @@ export function SacramentClient({
                   lang={formLang}
                   members={conductingOptions}
                   value={conducting}
-                  onChange={setConducting}
+                  onChange={(id) => commitRoleAssignment("conducting", id)}
                 />
               </div>
               <div>
@@ -1858,7 +1737,7 @@ export function SacramentClient({
                   lang={formLang}
                   members={choristerOptions}
                   value={chorister}
-                  onChange={setChorister}
+                  onChange={(id) => commitRoleAssignment("chorister", id)}
                 />
               </div>
               <div>
@@ -1868,7 +1747,7 @@ export function SacramentClient({
                   lang={formLang}
                   members={organistOptions}
                   value={organist}
-                  onChange={setOrganist}
+                  onChange={(id) => commitRoleAssignment("organist", id)}
                 />
               </div>
             </div>
