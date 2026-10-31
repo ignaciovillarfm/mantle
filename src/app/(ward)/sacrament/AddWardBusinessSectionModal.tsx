@@ -1,6 +1,5 @@
 "use client";
 
-import { AddMemberForm } from "@/app/(ward)/members/AddMemberForm";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,8 +22,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { hoverRevealRemoveClassName } from "@/lib/hoverRevealRemove";
-import { MemberSearchSelect } from "@/components/MemberSearchSelect";
+import {
+  MemberSearchSelect,
+  type MemberSearchAddMember,
+} from "@/components/MemberSearchSelect";
 import { GroupedCallingSelect } from "@/components/GroupedCallingSelect";
+import {
+  sacramentPaperModalBodyClass,
+  sacramentPaperModalFooterClass,
+  sacramentPaperModalHeaderClass,
+  sacramentPaperOverlayAttrs,
+  sacramentPaperOverlayClass,
+} from "./SacramentSection";
 import type { CallingPositionOption } from "./loadSacramentState";
 import { CreateCallingPositionFields } from "./CreateCallingPositionFields";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -137,7 +146,7 @@ function WardBusinessPersonFields({
   disableRemove = false,
   addLabel,
   onAdd,
-  onRequestAddMember,
+  addMember,
 }: {
   variant: "release" | "sustaining" | "ordination";
   rowId: string;
@@ -160,7 +169,7 @@ function WardBusinessPersonFields({
   disableRemove?: boolean;
   addLabel?: string;
   onAdd?: () => void;
-  onRequestAddMember?: () => void;
+  addMember?: MemberSearchAddMember;
 }) {
   void variant;
 
@@ -178,14 +187,8 @@ function WardBusinessPersonFields({
           members={members}
           value={memberId}
           onChange={onMemberChange}
-          footerAction={
-            onRequestAddMember
-              ? {
-                  label: ft(formLang, { en: "+ Add new member…", es: "+ Agregar miembro…" }),
-                  onSelect: onRequestAddMember,
-                }
-              : undefined
-          }
+          addMember={addMember}
+          paper
         />
       </div>
 
@@ -228,6 +231,11 @@ function WardBusinessPersonFields({
           ) : null}
           <Select
             value={office || null}
+            items={{
+              deacon: ft(formLang, { en: "Deacon", es: "Diácono" }),
+              teacher: ft(formLang, { en: "Teacher", es: "Maestro" }),
+              priest: ft(formLang, { en: "Priest", es: "Presbítero" }),
+            }}
             onValueChange={(v) =>
               onOfficeChange?.((v || "") as WardBusinessModalFields["aaronicOffice"])
             }
@@ -235,7 +243,10 @@ function WardBusinessPersonFields({
             <SelectTrigger id={`ward-person-office-${rowId}`} className="w-full">
               <SelectValue placeholder={ft(formLang, { en: "Choose…", es: "Elegir…" })} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent
+              {...sacramentPaperOverlayAttrs}
+              className={sacramentPaperOverlayClass}
+            >
               <SelectItem value="deacon">{ft(formLang, { en: "Deacon", es: "Diácono" })}</SelectItem>
               <SelectItem value="teacher">{ft(formLang, { en: "Teacher", es: "Maestro" })}</SelectItem>
               <SelectItem value="priest">{ft(formLang, { en: "Priest", es: "Presbítero" })}</SelectItem>
@@ -321,6 +332,7 @@ export function AddWardBusinessSectionModal({
   members,
   callingPositions,
   memberActiveCallings,
+  sectionTemplates = {},
   wardId,
   onMembersChange,
   onCallingPositionsChange,
@@ -336,6 +348,8 @@ export function AddWardBusinessSectionModal({
   callingPositions: CallingPositionOption[];
   /** Set-apart callings by member — used to auto-fill Releases. */
   memberActiveCallings: Record<string, MemberActiveCalling[]>;
+  /** Ward script templates (`ward.releases.default`, etc.). */
+  sectionTemplates?: Record<string, { en?: string; es?: string }>;
   wardId: string;
   onMembersChange: (members: { id: string; name: string }[]) => void;
   onCallingPositionsChange: (positions: CallingPositionOption[]) => void;
@@ -357,10 +371,6 @@ export function AddWardBusinessSectionModal({
   const [kind, setKind] = useState<WardBusinessSectionKind | "">("");
   const [fields, setFields] = useState<WardBusinessModalFields>(() => initialWardBusinessModalFields());
   const [linkingRowId, setLinkingRowId] = useState<string | null>(null);
-  const [addMemberTarget, setAddMemberTarget] = useState<{
-    kind: "sustaining" | "release" | "ordination";
-    rowId: string;
-  } | null>(null);
 
   const localizedCallingOptions = useMemo(
     () =>
@@ -372,10 +382,45 @@ export function AddWardBusinessSectionModal({
     [callingPositions, formLang],
   );
 
-  const callingOptionsForAddMember = useMemo(
-    () => localizedCallingOptions.map((p) => ({ id: p.id, title: p.title })),
-    [localizedCallingOptions],
+  const memberSearchAdd = useMemo<MemberSearchAddMember>(
+    () => ({
+      wardId,
+      callingOptions: localizedCallingOptions.map((p) => ({ id: p.id, title: p.title })),
+      onCreated: (member) => {
+        onMembersChange(
+          [...members, member].sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      },
+    }),
+    [wardId, localizedCallingOptions, members, onMembersChange],
   );
+
+  const sectionKindItems = useMemo(
+    () =>
+      Object.fromEntries(
+        SECTION_KIND_ORDER.map((k) => [k, wardBusinessSectionDefaultTitle(k, formLang)]),
+      ) as Record<WardBusinessSectionKind, string>,
+    [formLang],
+  );
+
+  const selectedKindScript = useMemo(() => {
+    if (!kind) return [] as string[];
+    const texts: string[] = [];
+    const pick = (key: string) => {
+      const row = sectionTemplates[key];
+      if (!row) return;
+      const body = (formLang === "es" ? row.es : row.en)?.trim() || row.es?.trim() || row.en?.trim();
+      if (body) texts.push(body);
+    };
+    if (kind === "aaron_priesthood_ordination") {
+      pick("ward.ordination.deacon");
+      pick("ward.ordination.teacher_priest");
+      return texts;
+    }
+    const key = defaultTemplateKeyForWardKind(kind);
+    if (key) pick(key);
+    return texts;
+  }, [kind, formLang, sectionTemplates]);
 
   useEffect(() => {
     if (!open) return;
@@ -432,7 +477,6 @@ export function AddWardBusinessSectionModal({
   }, [editingSection, initialKind, open]);
 
   const close = useCallback(() => {
-    setAddMemberTarget(null);
     setLinkingRowId(null);
     onClose();
   }, [onClose]);
@@ -537,13 +581,17 @@ export function AddWardBusinessSectionModal({
     });
   }, [atCapacity, editingSection, fields, formLang, kind, localizedCallingOptions, members, onConfirm]);
 
-  const allowAddMember = kind === "sustainings" || kind === "releases" || kind === "aaron_priesthood_ordination";
-
   return (
-    <>
-      <Dialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
-        <DialogContent className="flex max-h-[min(90vh,780px)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-          <DialogHeader className="border-b p-4 pb-3">
+    <Dialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
+        <DialogContent
+          {...sacramentPaperOverlayAttrs}
+          align="paper"
+          className={cn(
+            "flex max-h-[min(90vh,780px)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl",
+            sacramentPaperOverlayClass,
+          )}
+        >
+          <DialogHeader className={sacramentPaperModalHeaderClass}>
             <DialogTitle id="ward-add-section-title">
               {editingSection
                 ? ft(formLang, { en: "Edit ward business section", es: "Editar sección de asuntos del barrio" })
@@ -562,7 +610,7 @@ export function AddWardBusinessSectionModal({
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="min-h-0 flex-1">
-            <div className="space-y-4 p-4">
+            <div className={sacramentPaperModalBodyClass}>
           {atCapacity ? (
             <p className="text-sm text-amber-700">
               {ft(formLang, {
@@ -579,13 +627,17 @@ export function AddWardBusinessSectionModal({
               </Label>
               <Select
                 value={kind || null}
+                items={sectionKindItems}
                 disabled={Boolean(editingSection) || Boolean(initialKind)}
                 onValueChange={(v) => setKind((v ?? "") as WardBusinessSectionKind | "")}
               >
                 <SelectTrigger id="ward-add-kind" className="w-full">
                   <SelectValue placeholder={ft(formLang, { en: "Choose…", es: "Elegir…" })} />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent
+                  {...sacramentPaperOverlayAttrs}
+                  className={sacramentPaperOverlayClass}
+                >
                   {SECTION_KIND_ORDER.map((k) => (
                     <SelectItem key={k} value={k}>
                       {wardBusinessSectionDefaultTitle(k, formLang)}
@@ -594,6 +646,22 @@ export function AddWardBusinessSectionModal({
                 </SelectContent>
               </Select>
             </div>
+
+            {selectedKindScript.length > 0 ? (
+              <div className="space-y-2 rounded-none border border-neutral-800/40 bg-neutral-50 px-3 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-neutral-600">
+                  {ft(formLang, { en: "Program text", es: "Texto del programa" })}
+                </p>
+                {selectedKindScript.map((text, i) => (
+                  <p
+                    key={`kind-script-${i}`}
+                    className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800"
+                  >
+                    {text}
+                  </p>
+                ))}
+              </div>
+            ) : null}
 
             {kind === "sustainings" ? (
               <div className="space-y-3">
@@ -662,21 +730,8 @@ export function AddWardBusinessSectionModal({
                                 ),
                               }))
                             }
-                            footerAction={
-                              allowAddMember
-                                ? {
-                                    label: ft(formLang, {
-                                      en: "+ Add new member…",
-                                      es: "+ Agregar miembro…",
-                                    }),
-                                    onSelect: () =>
-                                      setAddMemberTarget({
-                                        kind: "sustaining",
-                                        rowId: row.id,
-                                      }),
-                                  }
-                                : undefined
-                            }
+                            addMember={memberSearchAdd}
+                            paper
                           />
                         </div>
 
@@ -745,7 +800,11 @@ export function AddWardBusinessSectionModal({
                             >
                               <Link2Icon className="size-4" />
                             </PopoverTrigger>
-                            <PopoverContent align="end" className="w-64 gap-1 p-1.5">
+                            <PopoverContent
+                              align="end"
+                              {...sacramentPaperOverlayAttrs}
+                              className={cn("w-64 gap-1 p-1.5", sacramentPaperOverlayClass)}
+                            >
                               {isLinked ? (
                                 <button
                                   type="button"
@@ -978,11 +1037,7 @@ export function AddWardBusinessSectionModal({
                             })
                         : undefined
                     }
-                    onRequestAddMember={
-                      allowAddMember
-                        ? () => setAddMemberTarget({ kind: "ordination", rowId: row.id })
-                        : undefined
-                    }
+                    addMember={memberSearchAdd}
                   />
                 ))}
               </div>
@@ -1130,11 +1185,7 @@ export function AddWardBusinessSectionModal({
                                 })
                             : undefined
                         }
-                        onRequestAddMember={
-                          allowAddMember
-                            ? () => setAddMemberTarget({ kind: "release", rowId: row.id })
-                            : undefined
-                        }
+                        addMember={memberSearchAdd}
                       />
                     );
                   })}
@@ -1217,12 +1268,13 @@ export function AddWardBusinessSectionModal({
           </div>
             </div>
           </ScrollArea>
-          <DialogFooter className="border-t p-4">
-            <Button type="button" variant="outline" onClick={close}>
+          <DialogFooter className={sacramentPaperModalFooterClass}>
+            <Button type="button" variant="outline" className="rounded-none" onClick={close}>
               {ft(formLang, { en: "Cancel", es: "Cancelar" })}
             </Button>
             <Button
               type="button"
+              className="rounded-none"
               disabled={!kind || (atCapacity && !editingSection)}
               onClick={() => void submit()}
             >
@@ -1234,56 +1286,6 @@ export function AddWardBusinessSectionModal({
             </Button>
           </DialogFooter>
         </DialogContent>
-
-        <Dialog
-          open={Boolean(addMemberTarget)}
-          onOpenChange={(next) => {
-            if (!next) setAddMemberTarget(null);
-          }}
-        >
-          <DialogContent
-            className="z-[110] flex max-h-[min(90vh,720px)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-y-auto sm:max-w-md"
-            overlayClassName="z-[110]"
-          >
-            <DialogHeader className="pb-3">
-              <DialogTitle id="ward-business-add-member-title">
-                {ft(formLang, { en: "Add member", es: "Agregar miembro" })}
-              </DialogTitle>
-            </DialogHeader>
-            <AddMemberForm
-              wardId={wardId}
-              callingOptions={callingOptionsForAddMember}
-              onSuccess={(member) => {
-                onMembersChange(
-                  [...members, member].sort((a, b) => a.name.localeCompare(b.name)),
-                );
-                const target = addMemberTarget;
-                setAddMemberTarget(null);
-                if (!target) return;
-                if (target.kind === "release") {
-                  applyReleaseMember(target.rowId, member.id);
-                  return;
-                }
-                if (target.kind === "sustaining") {
-                  setFields((f) => ({
-                    ...f,
-                    sustainingRows: f.sustainingRows.map((r) =>
-                      r.id === target.rowId ? { ...r, member_id: member.id } : r,
-                    ),
-                  }));
-                  return;
-                }
-                setFields((f) => ({
-                  ...f,
-                  ordinationRows: f.ordinationRows.map((r) =>
-                    r.id === target.rowId ? { ...r, member_id: member.id } : r,
-                  ),
-                }));
-              }}
-            />
-          </DialogContent>
-        </Dialog>
-      </Dialog>
-    </>
+    </Dialog>
   );
 }

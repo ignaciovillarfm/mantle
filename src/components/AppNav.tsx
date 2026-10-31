@@ -1,7 +1,8 @@
 import { MantleLogo } from "@/components/MantleLogo";
 import { BishopricNavDropdown } from "@/components/BishopricNavDropdown";
+import { UserNavMenu } from "@/components/UserNavMenu";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
-import { userDisplayNameFromAuth, userInitialsFromDisplayName } from "@/lib/userDisplayName";
+import { userDisplayNameFromAuth } from "@/lib/userDisplayName";
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 
@@ -40,8 +41,8 @@ export async function AppNav() {
         : null;
 
   return (
-    <nav className="border-b border-border bg-surface/80 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center">
+    <nav className="sticky top-0 z-40 border-b border-border bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="flex min-w-0 shrink-0 items-center gap-2 sm:max-w-[14rem]">
           <Link href="/bishopric/organization" className="shrink-0" aria-label="Mantle home">
             <MantleLogo variant="mark" />
@@ -76,42 +77,7 @@ export async function AppNav() {
         </div>
 
         <div className="relative z-20 flex shrink-0 items-center gap-2 sm:ml-auto">
-          {user ? (
-            <Link
-              href="/settings"
-              className="flex min-h-10 min-w-10 items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-surface-hover"
-              title={`${displayName} — account settings`}
-              aria-label={`${displayName}, account settings`}
-            >
-              {avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- OAuth URLs; avoid remotePatterns churn
-                <img
-                  src={avatarUrl}
-                  alt=""
-                  className="pointer-events-none h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-border"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <span
-                  className="pointer-events-none flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border"
-                  aria-hidden
-                >
-                  {userInitialsFromDisplayName(displayName)}
-                </span>
-              )}
-              <span className="max-w-[8rem] truncate text-sm font-medium text-foreground sm:max-w-[10rem]">
-                {displayName}
-              </span>
-            </Link>
-          ) : null}
-          <form action="/auth/sign-out" method="post">
-            <button
-              type="submit"
-              className="rounded-lg px-3 py-2 text-sm text-foreground/60 hover:text-foreground"
-            >
-              Sign out
-            </button>
-          </form>
+          {user ? <UserNavMenu displayName={displayName} avatarUrl={avatarUrl} /> : null}
         </div>
       </div>
     </nav>

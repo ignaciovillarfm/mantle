@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  defaultPresidingMemberId,
   firstPoolMember,
+  isBishopCallingTitle,
   mergeRoleMemberIds,
   normalizeRolePool,
   reorderListItems,
@@ -51,5 +53,23 @@ describe("sacramentRoles", () => {
   it("firstPoolMember returns first pool id", () => {
     expect(firstPoolMember(["p1", "p2"])).toBe("p1");
     expect(firstPoolMember([])).toBeNull();
+  });
+
+  it("isBishopCallingTitle matches Bishop/Obispo only", () => {
+    expect(isBishopCallingTitle("Bishop")).toBe(true);
+    expect(isBishopCallingTitle("obispo")).toBe(true);
+    expect(isBishopCallingTitle("First Counselor in the Bishopric")).toBe(false);
+    expect(isBishopCallingTitle("Assistant Ward Clerk")).toBe(false);
+  });
+
+  it("defaultPresidingMemberId prefers Bishop in the pool", () => {
+    const callings = {
+      galovich: [{ title: "Stake High Councilor" }],
+      bishop: [{ title: "Bishop" }],
+      counselor: [{ title: "First Counselor in the Bishopric" }],
+    };
+    expect(defaultPresidingMemberId(["galovich", "bishop", "counselor"], callings)).toBe("bishop");
+    expect(defaultPresidingMemberId(["galovich", "counselor"], callings)).toBe("galovich");
+    expect(defaultPresidingMemberId([], callings)).toBeNull();
   });
 });

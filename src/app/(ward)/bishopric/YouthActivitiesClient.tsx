@@ -33,7 +33,9 @@ import {
   type YouthActivity,
   type YouthQuorum,
 } from "@/lib/youth/youthActivity";
-import { useMemo, useState } from "react";
+import { useWardCachedState } from "@/hooks/useWardCachedState";
+import { wardPageKeys } from "@/lib/wardPageCache";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Trash2Icon } from "lucide-react";
 
@@ -173,7 +175,10 @@ export function YouthActivitiesClient({
   initialActivities: YouthActivity[];
   members: { id: string; name: string }[];
 }) {
-  const [activities, setActivities] = useState(initialActivities);
+  const [activities, setActivities] = useWardCachedState(
+    wardPageKeys.youthActivities(wardId),
+    initialActivities,
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<YouthActivity | null>(null);
   const [form, setForm] = useState<FormState>(() => emptyForm());
@@ -181,10 +186,15 @@ export function YouthActivitiesClient({
   const [formError, setFormError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
+  const [memberList, setMemberList] = useState(members);
+
+  useEffect(() => {
+    setMemberList(members);
+  }, [members]);
 
   const youthMembers = useMemo(
-    () => members.map((m) => ({ id: m.id, name: m.name })),
-    [members],
+    () => memberList.map((m) => ({ id: m.id, name: m.name })),
+    [memberList],
   );
 
   const todayIso = formatLocalISODate(new Date());
@@ -520,26 +530,33 @@ export function YouthActivitiesClient({
               />
             </div>
 
-            {youthMembers.length > 0 ? (
-              <div>
-                <Label htmlFor="ya-member">Link member (optional)</Label>
-                <MemberSearchSelect
-                  id="ya-member"
-                  lang="en"
-                  members={youthMembers}
-                  value={form.youthMemberId}
-                  onChange={(id) => {
-                    const name = youthMembers.find((m) => m.id === id)?.name;
-                    setForm((f) => ({
-                      ...f,
-                      youthMemberId: id,
-                      youthInCharge: name ?? f.youthInCharge,
-                    }));
-                  }}
-                  emptyLabel="— Optional —"
-                />
-              </div>
-            ) : null}
+            <div>
+              <Label htmlFor="ya-member">Link member (optional)</Label>
+              <MemberSearchSelect
+                id="ya-member"
+                lang="en"
+                members={youthMembers}
+                value={form.youthMemberId}
+                onChange={(id) => {
+                  const name = youthMembers.find((m) => m.id === id)?.name;
+                  setForm((f) => ({
+                    ...f,
+                    youthMemberId: id,
+                    youthInCharge: name ?? f.youthInCharge,
+                  }));
+                }}
+                emptyLabel="— Optional —"
+                addMember={{
+                  wardId,
+                  onCreated: (member) => {
+                    setMemberList((prev) => {
+                      if (prev.some((m) => m.id === member.id)) return prev;
+                      return [...prev, member].sort((a, b) => a.name.localeCompare(b.name));
+                    });
+                  },
+                }}
+              />
+            </div>
 
             <div>
               <Label htmlFor="ya-notes">Notes</Label>

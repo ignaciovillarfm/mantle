@@ -149,7 +149,7 @@ const loadSacramentWardCatalog = cache(async (wardId: string): Promise<Sacrament
   await assertWardAccess(wardId);
   const supabase = await createClient();
 
-  const [membersRes, positionsRes, templatesRes, rolePoolRes, callingsRes, priorTalksRes] =
+  const [membersRes, positionsRes, templatesRes, wardTemplatesRes, rolePoolRes, callingsRes, priorTalksRes] =
     await Promise.all([
     supabase.from("members").select("id, name, last_pulpit_date").eq("ward_id", wardId).order("name"),
     supabase
@@ -159,6 +159,10 @@ const loadSacramentWardCatalog = cache(async (wardId: string): Promise<Sacrament
       .order("sort_order", { ascending: true })
       .order("title", { ascending: true }),
     supabase.from("sacrament_section_templates").select("template_key, lang, body"),
+    supabase
+      .from("ward_sacrament_section_templates")
+      .select("template_key, lang, body")
+      .eq("ward_id", wardId),
     supabase
       .from("sacrament_role_pool_members")
       .select("role_key, member_id, sort_order")
@@ -212,6 +216,13 @@ const loadSacramentWardCatalog = cache(async (wardId: string): Promise<Sacrament
 
   const sectionTemplates: SectionTemplateMap = {};
   for (const row of templatesRes.data ?? []) {
+    const key = row.template_key as string;
+    const lang = row.lang as "en" | "es";
+    const body = row.body as string;
+    sectionTemplates[key] = { ...(sectionTemplates[key] ?? {}), [lang]: body };
+  }
+  // Ward overrides replace global defaults for this ward only.
+  for (const row of wardTemplatesRes.data ?? []) {
     const key = row.template_key as string;
     const lang = row.lang as "en" | "es";
     const body = row.body as string;

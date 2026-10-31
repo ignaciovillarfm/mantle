@@ -13,9 +13,12 @@ export type EditableMember = {
 export function EditMemberModal({
   member,
   onClose,
+  onSaved,
 }: {
   member: EditableMember | null;
   onClose: () => void;
+  /** Immediate list update — prefer over waiting on router.refresh. */
+  onSaved?: (next: EditableMember) => void;
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -49,12 +52,24 @@ export function EditMemberModal({
           credentials: "same-origin",
           body: JSON.stringify({ id: member.id, name: trimmed, isYouth }),
         });
-        const json = (await res.json()) as { ok?: boolean; error?: string };
+        const json = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          member?: { id: string; name: string; is_youth: boolean };
+        };
         if (!res.ok || !json.ok) {
           setError(json.error ?? `Save failed (${res.status})`);
           return;
         }
-        router.refresh();
+        if (onSaved && json.member) {
+          onSaved({
+            id: json.member.id,
+            name: json.member.name,
+            is_youth: json.member.is_youth,
+          });
+        } else {
+          router.refresh();
+        }
         onClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Save failed");
@@ -62,7 +77,7 @@ export function EditMemberModal({
         setBusy(false);
       }
     },
-    [member, name, isYouth, router, onClose],
+    [member, name, isYouth, router, onClose, onSaved],
   );
 
   if (!member) return null;

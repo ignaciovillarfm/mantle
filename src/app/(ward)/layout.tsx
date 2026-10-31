@@ -6,9 +6,14 @@ export default async function WardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-dvh pb-20">
+    <div className="flex min-h-dvh flex-col overflow-x-hidden">
       <AppNav />
-      <div className="mx-auto max-w-5xl px-4 py-6">{children}</div>
+      <div
+        data-ward-content
+        className="mx-auto flex w-full max-w-6xl flex-1 flex-col overflow-x-hidden px-4 py-4 sm:py-6"
+      >
+        {children}
+      </div>
     </div>
   );
 }

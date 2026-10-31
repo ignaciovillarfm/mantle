@@ -43,8 +43,20 @@ import {
 } from "@/lib/sacramentProgram";
 import { loadSacramentPageQuery } from "@/lib/sacrament/fetchSacramentPageJson";
 import { mergeSacramentBundleAfterSave } from "@/lib/sacrament/mergeSacramentBundleAfterSave";
-import { firstPoolMember, roleMemberOptions } from "@/lib/sacrament/sacramentRoles";
-import { SACRAMENT_PAGE_STALE_MS, sacramentQueryKeys } from "@/lib/sacrament/sacramentQueryKeys";
+import {
+  readSacramentPageCache,
+  writeSacramentPageCache,
+} from "@/lib/sacrament/sacramentPageCache";
+import {
+  defaultPresidingMemberId,
+  firstPoolMember,
+  roleMemberOptions,
+} from "@/lib/sacrament/sacramentRoles";
+import {
+  SACRAMENT_PAGE_GC_MS,
+  SACRAMENT_PAGE_STALE_MS,
+  sacramentQueryKeys,
+} from "@/lib/sacrament/sacramentQueryKeys";
 import { MemberSearchSelect } from "@/components/MemberSearchSelect";
 import {
   AlertDialog,
@@ -71,17 +83,27 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { hoverRevealRemoveClassName, removeIconMarkClassName } from "@/lib/hoverRevealRemove";
+import { Settings } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { SacramentPauseSeparator, SacramentSection, sacramentFormControlClass } from "./SacramentSection";
+import {
+  SacramentPaper,
+  SacramentPauseSeparator,
+  SacramentSection,
+  sacramentFormControlClass,
+  sacramentPaperOverlayAttrs,
+  sacramentPaperOverlayClass,
+} from "./SacramentSection";
 import { SacramentFormSkeleton } from "./SacramentSkeleton";
 import { sundayStripCellClassName } from "@/lib/formControlStyles";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const SACRAMENT_LANG_STORAGE_KEY = "mantle-sacrament-form-lang";
 const AUTO_SAVE_DEBOUNCE_MS = 600;
+/** Active SacramentClient mount ids — used to skip Strict Mode remount unmount-saves. */
+const sacramentClientActiveMounts = new Set<string>();
 
 function agendaNavItems(kind: SacramentMeetingProgramKind): {
   id: string;
@@ -175,8 +197,12 @@ function hydratedRoleAssignments(bundle: SacramentPageBundle): {
       organist: m.organist_member_id ?? null,
     };
   }
+  const presidingDefault = defaultPresidingMemberId(
+    pool?.presiding ?? [],
+    bundle.memberActiveCallings,
+  );
   return {
-    presiding: firstPoolMember(pool?.presiding ?? []),
+    presiding: presidingDefault,
     conducting: firstPoolMember(pool?.conducting ?? []),
     chorister: firstPoolMember(pool?.chorister ?? []),
     organist: firstPoolMember(pool?.organist ?? []),
@@ -249,7 +275,7 @@ function ReadonlyPairRow({
         {showLabels ? <p className="mb-1 text-sm font-medium text-foreground">{leftLabel}</p> : null}
         <div
           className={cn(
-            "flex min-h-10 items-center rounded-lg px-3 py-2 text-sm",
+            "flex min-h-10 items-center px-3 py-2 text-sm",
             sacramentFormControlClass,
             multiName && "font-medium",
           )}
@@ -259,7 +285,7 @@ function ReadonlyPairRow({
       </div>
       <div>
         {showLabels ? <p className="mb-1 text-sm font-medium text-foreground">{rightLabel}</p> : null}
-        <div className={cn("flex min-h-10 items-center rounded-lg px-3 py-2 text-sm", sacramentFormControlClass)}>
+        <div className={cn("flex min-h-10 items-center px-3 py-2 text-sm", sacramentFormControlClass)}>
           {rightValue || "—"}
         </div>
       </div>
@@ -395,19 +421,24 @@ function HymnInput({
   const numberDigits = parsed.numberPart.replace(/\D/g, "").slice(0, 5);
   return (
     <div className="mt-1 flex items-center gap-2">
-      <span aria-hidden="true" className="shrink-0 text-sm font-medium text-foreground/75" title="Hymn number">
-        #
-      </span>
-      <Input
-        id={`${id}-number`}
-        type="text"
-        inputMode="numeric"
-        maxLength={5}
-        className={cn(sacramentFormControlClass, "h-10 w-16 shrink-0 px-2 text-center")}
-        aria-label="Hymn number"
-        value={numberDigits}
-        onChange={(e) => onChange(buildHymnValue(e.target.value, parsed.namePart))}
-      />
+      <div className="relative w-[4.25rem] shrink-0">
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 left-2.5 z-10 -translate-y-1/2 text-sm font-medium text-neutral-500"
+        >
+          #
+        </span>
+        <Input
+          id={`${id}-number`}
+          type="text"
+          inputMode="numeric"
+          maxLength={5}
+          className={cn(sacramentFormControlClass, "h-10 w-full pl-6 pr-2 text-center")}
+          aria-label="Hymn number"
+          value={numberDigits}
+          onChange={(e) => onChange(buildHymnValue(e.target.value, parsed.namePart))}
+        />
+      </div>
       <Input
         id={id}
         className={cn(sacramentFormControlClass, "h-10 min-w-0 flex-1")}
@@ -433,16 +464,15 @@ export function SacramentClient({
   wards: { id: string; name: string }[];
   wardId: string;
   meetingDate: string;
-  initial: SacramentPageBundle;
-  /** Same shape as `/api/sacrament/state` — hydrates React Query so week arrows do not re-hit the JSON route. */
-  adjacentWeeks: {
+  /** Optional RSC seed — prefer React Query cache; cold loads use `/api/sacrament/state`. */
+  initial?: SacramentPageBundle;
+  adjacentWeeks?: {
     prevIso: string;
     prev: SacramentPageBundle;
     nextIso: string;
     next: SacramentPageBundle;
   };
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
 
@@ -487,12 +517,12 @@ export function SacramentClient({
   );
   const routeKey = `${effectiveWardId}|${effectiveMeetingDate}`;
   const propsAlignedWithUrl =
-    meetingDate === effectiveMeetingDate && wardId === effectiveWardId;
+    !!initial && meetingDate === effectiveMeetingDate && wardId === effectiveWardId;
   const routeSeedRef = useRef<string | null>(null);
   if (routeSeedRef.current !== routeKey) {
     routeSeedRef.current = routeKey;
-    const cached = queryClient.getQueryData<SacramentPageBundle>(pageQueryKey);
-    if (!cached && propsAlignedWithUrl) {
+    // Seed only when RQ is empty — never replace a warm cache with RSC (avoids wipe + skeleton).
+    if (propsAlignedWithUrl && initial && !queryClient.getQueryData(pageQueryKey)) {
       queryClient.setQueryData(pageQueryKey, initial);
     }
   }
@@ -502,10 +532,10 @@ export function SacramentClient({
     queryKey: pageQueryKey,
     queryFn: (ctx) => loadSacramentPageQuery(queryClient, ctx),
     /** Seeds SSR / empty cache; ignored when prefetch filled the key — render-phase + layout sync fix that. */
-    initialData: propsAlignedWithUrl ? initial : undefined,
+    initialData: propsAlignedWithUrl ? initial : cacheSnapshot,
     placeholderData: cacheSnapshot,
     staleTime: SACRAMENT_PAGE_STALE_MS,
-    gcTime: 30 * 60 * 1000,
+    gcTime: SACRAMENT_PAGE_GC_MS,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -523,11 +553,14 @@ export function SacramentClient({
     () => sacramentQueryKeys.page(effectiveWardId, displayWeekIso),
     [effectiveWardId, displayWeekIso],
   );
+  const displayCacheSnapshot = queryClient.getQueryData<SacramentPageBundle>(displayPageQueryKey);
   const { data: displayWeekBundle } = useQuery({
     queryKey: displayPageQueryKey,
     queryFn: (ctx) => loadSacramentPageQuery(queryClient, ctx),
+    initialData: displayCacheSnapshot,
+    placeholderData: displayCacheSnapshot,
     staleTime: SACRAMENT_PAGE_STALE_MS,
-    gcTime: 30 * 60 * 1000,
+    gcTime: SACRAMENT_PAGE_GC_MS,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -619,6 +652,18 @@ export function SacramentClient({
   };
   const debounceTimerRef = useRef<number | null>(null);
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
+  const pendingResaveRef = useRef(false);
+  const flushSaveRef = useRef<(opts?: {
+    keepalive?: boolean;
+    reason?: "debounce" | "navigate" | "pagehide" | "unmount";
+  }) => Promise<boolean>>(async () => true);
+  const displayWeekIsoRef = useRef(displayWeekIso);
+  displayWeekIsoRef.current = displayWeekIso;
+  const mountIdRef = useRef(
+    typeof globalThis !== "undefined" && globalThis.crypto?.randomUUID
+      ? globalThis.crypto.randomUUID()
+      : `sac-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+  );
   const [formFieldsMounted, setFormFieldsMounted] = useState(false);
   const [catalogMembers, setCatalogMembers] = useState<{ id: string; name: string }[]>([]);
   const [catalogCallings, setCatalogCallings] = useState<CallingPositionOption[]>([]);
@@ -628,10 +673,8 @@ export function SacramentClient({
     () => agendaNavItems(sacramentMeetingProgramKind(displayWeekIso)),
     [displayWeekIso],
   );
-  /** Only skeleton when this Sunday is not already in cache (initial mount or uncached jump). */
-  const showFormSkeleton =
-    !formFieldsMounted ||
-    !(displayWeekIso === effectiveMeetingDate ? bundle : displayWeekBundle);
+  /** Skeleton only when the displayed Sunday is missing from RQ/RSC — never gate on mount (that flashed cache hits). */
+  const showFormSkeleton = !(displayWeekIso === effectiveMeetingDate ? bundle : displayWeekBundle);
 
   useEffect(() => {
     setFormFieldsMounted(true);
@@ -674,15 +717,21 @@ export function SacramentClient({
     };
   }, [formFieldsMounted, showFormSkeleton, agendaItems, bundle?.meeting?.id, showDiscourseSlots]);
 
-  /** Same ward/date after navigation: RSC passes a new `initial` — publish it so cache matches server without waiting on refetch. */
+  /**
+   * Same ward/date after a real RSC navigation: seed RQ when empty.
+   * Do not clobber an existing client cache entry (week soft-nav / autosave already wrote it).
+   */
   useLayoutEffect(() => {
-    if (!propsAlignedWithUrl) return;
-    queryClient.setQueryData(pageQueryKey, initial);
+    if (!propsAlignedWithUrl || !initial) return;
+    const existing = queryClient.getQueryData<SacramentPageBundle>(pageQueryKey);
+    if (!existing) {
+      queryClient.setQueryData(pageQueryKey, initial);
+    }
   }, [initial, pageQueryKey, queryClient, propsAlignedWithUrl]);
 
-  /** SSR loaded prev/next via Supabase; `router.prefetch` only warms RSC — this seeds TanStack so `/api/sacrament/state` is not called for those keys. */
+  /** Optional SSR adjacent seed (legacy); soft-nav + prefetch below cover the fast-shell path. */
   useLayoutEffect(() => {
-    if (!propsAlignedWithUrl) return;
+    if (!adjacentWeeks || !propsAlignedWithUrl) return;
     queryClient.setQueryData(sacramentQueryKeys.page(wardId, adjacentWeeks.prevIso), adjacentWeeks.prev);
     queryClient.setQueryData(sacramentQueryKeys.page(wardId, adjacentWeeks.nextIso), adjacentWeeks.next);
   }, [adjacentWeeks, queryClient, wardId, propsAlignedWithUrl]);
@@ -693,10 +742,31 @@ export function SacramentClient({
         queryKey: sacramentQueryKeys.page(effectiveWardId, iso),
         queryFn: (ctx) => loadSacramentPageQuery(queryClient, ctx),
         staleTime: SACRAMENT_PAGE_STALE_MS,
-        gcTime: 30 * 60 * 1000,
+        gcTime: SACRAMENT_PAGE_GC_MS,
       });
     }
   }, [queryClient, effectiveWardId, prevWeekFromUrl, nextWeekFromUrl]);
+
+  /** Hydrate RQ from IndexedDB when memory cache is cold (page remount / hard refresh). */
+  useLayoutEffect(() => {
+    if (queryClient.getQueryData(pageQueryKey)) return;
+    let cancelled = false;
+    void (async () => {
+      const fromIdb = await readSacramentPageCache(effectiveWardId, effectiveMeetingDate);
+      if (cancelled || !fromIdb) return;
+      if (queryClient.getQueryData(pageQueryKey)) return;
+      queryClient.setQueryData(pageQueryKey, fromIdb);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pageQueryKey, queryClient, effectiveWardId, effectiveMeetingDate]);
+
+  /** Persist successful network/RQ reads to IndexedDB for the next visit. */
+  useEffect(() => {
+    if (!bundle) return;
+    void writeSacramentPageCache(effectiveWardId, effectiveMeetingDate, bundle);
+  }, [bundle, effectiveWardId, effectiveMeetingDate]);
 
   useEffect(() => {
     try {
@@ -736,7 +806,16 @@ export function SacramentClient({
       didHydrateCurrentRouteRef.current = false;
     }
     routeKeyRef.current = rk;
-    const hydrateSkipped = didHydrateCurrentRouteRef.current && !navigated;
+    let hydrateSkipped = didHydrateCurrentRouteRef.current && !navigated;
+    // Idle form + cache/RSC moved (e.g. bishop restored server-side while client still had Galovich): re-apply.
+    if (hydrateSkipped) {
+      const bundleSnap = snapshotFromBundle(bundle);
+      const draftSnap = serializeSacramentDraft(draftRef.current);
+      const isDirty = draftSnap !== lastSavedRef.current;
+      if (!isDirty && bundleSnap !== lastSavedRef.current) {
+        hydrateSkipped = false;
+      }
+    }
     if (hydrateSkipped) {
       setAutosaveReady(true);
       return;
@@ -780,11 +859,24 @@ export function SacramentClient({
     return () => clearTimeout(id);
   }, [bundle, effectiveMeetingDate, effectiveWardId]);
 
-  /** When the date strip moves to a prefetched Sunday, apply that cache immediately so the form/agenda do not remount into a skeleton. */
+  const clearSaveDebounce = useCallback(() => {
+    if (debounceTimerRef.current != null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  /**
+   * When the date strip moves to a prefetched Sunday, apply that cache immediately so the
+   * form/agenda do not remount into a skeleton. Keep autosave OFF until the URL catches up —
+   * otherwise a debounce can POST the preview draft under the previous Sunday's date and
+   * merge the response into the wrong React Query key.
+   */
   useEffect(() => {
     if (displayWeekIso === effectiveMeetingDate) return;
     if (!displayWeekBundle) return;
     setAutosaveReady(false);
+    clearSaveDebounce();
     const m = displayWeekBundle.meeting;
     const roles = hydratedRoleAssignments(displayWeekBundle);
     setPresiding(roles.presiding);
@@ -817,16 +909,7 @@ export function SacramentClient({
     setCatalogCallings(displayWeekBundle.callingPositions);
     lastSavedRef.current = snapshotFromBundle(displayWeekBundle);
     setSaveSuccess(false);
-    const id = window.setTimeout(() => setAutosaveReady(true), 0);
-    return () => clearTimeout(id);
-  }, [displayWeekIso, effectiveMeetingDate, displayWeekBundle]);
-
-  const clearSaveDebounce = useCallback(() => {
-    if (debounceTimerRef.current != null) {
-      window.clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-  }, []);
+  }, [displayWeekIso, effectiveMeetingDate, displayWeekBundle, clearSaveDebounce]);
 
   /** Immediate save of the latest draft. Returns false only when a user-visible save attempt failed. */
   const flushSave = useCallback(async (opts?: {
@@ -839,16 +922,25 @@ export function SacramentClient({
     const hasBundle = !!bundleRef.current;
     const mustPersist =
       reason === "navigate" || reason === "pagehide" || reason === "unmount";
+    const displayAligned =
+      displayWeekIsoRef.current === effectiveMeetingDateRef.current;
+    // Previewing another Sunday: never persist — the form already shows the other
+    // week's draft, and a late navigate/unmount flush would overwrite the URL date.
+    if (!displayAligned) {
+      return true;
+    }
     if (!hasBundle || (!ready && !mustPersist)) {
       return true;
     }
     if (saveInFlightRef.current) {
+      pendingResaveRef.current = true;
       return saveInFlightRef.current;
     }
 
     const draft = draftRef.current;
     const wardId = effectiveWardIdRef.current;
     const date = effectiveMeetingDateRef.current;
+    const saveQueryKey = sacramentQueryKeys.page(wardId, date);
     const next = serializeSacramentDraft(draft);
     const dirty = next !== lastSavedRef.current;
     if (!dirty) return true;
@@ -884,6 +976,35 @@ export function SacramentClient({
     };
 
     const keepalive = opts?.keepalive === true;
+    const mergeCacheAfterSave = (meetingId: string) => {
+      const prevBundle =
+        queryClientRef.current.getQueryData<SacramentPageBundle>(saveQueryKey) ??
+        (pageQueryKeyRef.current[3] === date ? bundleRef.current : undefined);
+      if (!prevBundle) return false;
+      const merged = mergeSacramentBundleAfterSave(prevBundle, {
+        meetingId,
+        date,
+        theme: payload.theme,
+        program: payload.program,
+        presiding_member_id: payload.presiding_member_id,
+        conducting_id: payload.conducting_id,
+        chorister_member_id: payload.chorister_member_id,
+        organist_member_id: payload.organist_member_id,
+        opening_prayer_member_id: payload.opening_prayer_member_id,
+        closing_prayer_member_id: payload.closing_prayer_member_id,
+        opening_prayer_response_status: payload.opening_prayer_response_status,
+        opening_prayer_response_note: payload.opening_prayer_response_note,
+        opening_prayer_fulfilled: payload.opening_prayer_fulfilled,
+        closing_prayer_response_status: payload.closing_prayer_response_status,
+        closing_prayer_response_note: payload.closing_prayer_response_note,
+        closing_prayer_fulfilled: payload.closing_prayer_fulfilled,
+        speakers: payload.speakers,
+      });
+      queryClientRef.current.setQueryData(saveQueryKey, merged);
+      void writeSacramentPageCache(wardId, date, merged);
+      return true;
+    };
+
     const run = async (): Promise<boolean> => {
       if (!keepalive) {
         setSaving(true);
@@ -903,7 +1024,15 @@ export function SacramentClient({
         } catch {
           // Unload/keepalive responses may be unreadable; treat transport success as saved.
           if (keepalive && http.ok) {
-            lastSavedRef.current = next;
+            if (
+              effectiveMeetingDateRef.current === date &&
+              displayWeekIsoRef.current === date
+            ) {
+              lastSavedRef.current = next;
+            }
+            const prev = queryClientRef.current.getQueryData<SacramentPageBundle>(saveQueryKey);
+            const fallbackMeetingId = prev?.meeting?.id ?? `pending:${date}`;
+            mergeCacheAfterSave(fallbackMeetingId);
             return true;
           }
           if (!keepalive) {
@@ -913,37 +1042,15 @@ export function SacramentClient({
           return false;
         }
         if (http.ok && res.ok) {
-          lastSavedRef.current = next;
+          const stillOnSavedSunday =
+            effectiveMeetingDateRef.current === date && displayWeekIsoRef.current === date;
+          if (stillOnSavedSunday) {
+            lastSavedRef.current = next;
+          }
+          mergeCacheAfterSave(res.meetingId);
           if (!keepalive) {
             setSaving(false);
-            setSaveSuccess(true);
-            const prevBundle =
-              queryClientRef.current.getQueryData<SacramentPageBundle>(pageQueryKeyRef.current) ??
-              bundleRef.current;
-            if (prevBundle) {
-              queryClientRef.current.setQueryData(
-                pageQueryKeyRef.current,
-                mergeSacramentBundleAfterSave(prevBundle, {
-                  meetingId: res.meetingId,
-                  date,
-                  theme: payload.theme,
-                  program: payload.program,
-                  presiding_member_id: payload.presiding_member_id,
-                  conducting_id: payload.conducting_id,
-                  chorister_member_id: payload.chorister_member_id,
-                  organist_member_id: payload.organist_member_id,
-                  opening_prayer_member_id: payload.opening_prayer_member_id,
-                  closing_prayer_member_id: payload.closing_prayer_member_id,
-                  opening_prayer_response_status: payload.opening_prayer_response_status,
-                  opening_prayer_response_note: payload.opening_prayer_response_note,
-                  opening_prayer_fulfilled: payload.opening_prayer_fulfilled,
-                  closing_prayer_response_status: payload.closing_prayer_response_status,
-                  closing_prayer_response_note: payload.closing_prayer_response_note,
-                  closing_prayer_fulfilled: payload.closing_prayer_fulfilled,
-                  speakers: payload.speakers,
-                }),
-              );
-            }
+            if (stillOnSavedSunday) setSaveSuccess(true);
           }
           return true;
         }
@@ -978,6 +1085,15 @@ export function SacramentClient({
       if (saveInFlightRef.current === promise) {
         saveInFlightRef.current = null;
       }
+      if (pendingResaveRef.current) {
+        pendingResaveRef.current = false;
+        if (
+          displayWeekIsoRef.current === effectiveMeetingDateRef.current &&
+          serializeSacramentDraft(draftRef.current) !== lastSavedRef.current
+        ) {
+          void flushSaveRef.current({ reason: "debounce" });
+        }
+      }
     }
   }, [clearSaveDebounce]);
 
@@ -1006,18 +1122,25 @@ export function SacramentClient({
     [clearSaveDebounce, flushSave],
   );
 
-  const flushSaveRef = useRef(flushSave);
   flushSaveRef.current = flushSave;
 
   useEffect(() => {
+    const mountId = mountIdRef.current;
+    sacramentClientActiveMounts.add(mountId);
     return () => {
       clearSaveDebounce();
-      void flushSaveRef.current({ keepalive: true, reason: "unmount" });
+      sacramentClientActiveMounts.delete(mountId);
+      // Defer so Strict Mode remount can register before we decide to persist.
+      void Promise.resolve().then(() => {
+        if (sacramentClientActiveMounts.size > 0) return;
+        void flushSaveRef.current({ keepalive: true, reason: "unmount" });
+      });
     };
   }, [clearSaveDebounce]);
 
   useEffect(() => {
     if (!autosaveReady || !bundleRef.current) return;
+    if (displayWeekIso !== effectiveMeetingDate) return;
     const current = serializeSacramentDraft(draftRef.current);
     if (current === lastSavedRef.current) return;
 
@@ -1046,12 +1169,15 @@ export function SacramentClient({
     speakers,
     effectiveWardId,
     effectiveMeetingDate,
+    displayWeekIso,
     clearSaveDebounce,
     flushSave,
   ]);
 
   useEffect(() => {
+    const mountId = mountIdRef.current;
     const onPageHide = () => {
+      if (!sacramentClientActiveMounts.has(mountId)) return;
       const current = serializeSacramentDraft(draftRef.current);
       if (current === lastSavedRef.current) return;
       void flushSave({ keepalive: true, reason: "pagehide" });
@@ -1060,28 +1186,89 @@ export function SacramentClient({
     return () => window.removeEventListener("pagehide", onPageHide);
   }, [flushSave]);
 
+  /** Ensure target Sunday is in RQ (memory → IDB → network) before flipping the form — avoids skeleton. */
+  const ensureSacramentWeek = useCallback(
+    async (targetIso: string) => {
+      const key = sacramentQueryKeys.page(effectiveWardId, targetIso);
+      await queryClient.ensureQueryData({
+        queryKey: key,
+        queryFn: (ctx) => loadSacramentPageQuery(queryClient, ctx),
+        staleTime: SACRAMENT_PAGE_STALE_MS,
+        gcTime: SACRAMENT_PAGE_GC_MS,
+      });
+      return !!queryClient.getQueryData<SacramentPageBundle>(key);
+    },
+    [effectiveWardId, queryClient],
+  );
+
+  /** Soft URL update — skips full RSC remount so cached weeks paint immediately. */
+  const softSacramentUrl = useCallback(
+    (url: string, targetIso: string) => {
+      window.history.pushState(null, "", url);
+      for (const iso of [shiftCalendarWeek(targetIso, -1), shiftCalendarWeek(targetIso, 1)]) {
+        void queryClient.prefetchQuery({
+          queryKey: sacramentQueryKeys.page(effectiveWardId, iso),
+          queryFn: (ctx) => loadSacramentPageQuery(queryClient, ctx),
+          staleTime: SACRAMENT_PAGE_STALE_MS,
+          gcTime: SACRAMENT_PAGE_GC_MS,
+        });
+      }
+    },
+    [effectiveWardId, queryClient],
+  );
+
   const navigateWardDate = async (nextWard: string, nextDate: string) => {
-    const ok = await flushSave({ reason: "navigate" });
-    if (!ok) return;
+    const savePromise = flushSave({ reason: "navigate" });
+    const ready = await ensureSacramentWeek(nextDate);
+    if (!ready) {
+      await savePromise;
+      return;
+    }
     const q = new URLSearchParams();
     q.set("ward", nextWard);
     q.set("date", nextDate);
-    router.push(`/sacrament?${q.toString()}`);
+    setDisplayWeekIso(nextDate);
+    softSacramentUrl(`/sacrament?${q.toString()}`, nextDate);
+    await savePromise;
   };
 
   const goToPrevWeek = useCallback(async () => {
-    const ok = await flushSave({ reason: "navigate" });
-    if (!ok) return;
+    const savePromise = flushSave({ reason: "navigate" });
+    const ready = await ensureSacramentWeek(prevWeekFromUrl);
+    if (!ready) {
+      await savePromise;
+      return;
+    }
     handlePrevWeekClick();
-    router.push(prevSacramentUrlLive);
-  }, [flushSave, handlePrevWeekClick, router, prevSacramentUrlLive]);
+    softSacramentUrl(prevSacramentUrlLive, prevWeekFromUrl);
+    await savePromise;
+  }, [
+    flushSave,
+    ensureSacramentWeek,
+    handlePrevWeekClick,
+    softSacramentUrl,
+    prevSacramentUrlLive,
+    prevWeekFromUrl,
+  ]);
 
   const goToNextWeek = useCallback(async () => {
-    const ok = await flushSave({ reason: "navigate" });
-    if (!ok) return;
+    const savePromise = flushSave({ reason: "navigate" });
+    const ready = await ensureSacramentWeek(nextWeekFromUrl);
+    if (!ready) {
+      await savePromise;
+      return;
+    }
     handleNextWeekClick();
-    router.push(nextSacramentUrlLive);
-  }, [flushSave, handleNextWeekClick, router, nextSacramentUrlLive]);
+    softSacramentUrl(nextSacramentUrlLive, nextWeekFromUrl);
+    await savePromise;
+  }, [
+    flushSave,
+    ensureSacramentWeek,
+    handleNextWeekClick,
+    softSacramentUrl,
+    nextSacramentUrlLive,
+    nextWeekFromUrl,
+  ]);
 
   const updateProgram = useCallback((key: keyof SacramentProgramBody, value: string) => {
     setProgram((p) => {
@@ -1504,9 +1691,98 @@ export function SacramentClient({
     return new Map(entries.map(([key, value]) => [key, formLang === "es" ? value.es : value.en]));
   }, [bundle?.sectionTemplates, formLang]);
 
+  const callingOptionsForAddMember = useMemo(
+    () =>
+      (catalogCallings.length > 0 ? catalogCallings : (bundle?.callingPositions ?? [])).map((p) => ({
+        id: p.id,
+        title: formLang === "es" ? p.titleEs : p.titleEn,
+      })),
+    [catalogCallings, bundle?.callingPositions, formLang],
+  );
+
+  const appendCatalogMember = useCallback(
+    (member: { id: string; name: string }) => {
+      setCatalogMembers((prev) => {
+        const base = prev.length > 0 ? prev : (bundle?.members ?? []);
+        if (base.some((m) => m.id === member.id)) return base;
+        return [...base, member].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      if (bundle) {
+        queryClient.setQueryData(pageQueryKey, {
+          ...bundle,
+          members: (() => {
+            if (bundle.members.some((m) => m.id === member.id)) return bundle.members;
+            return [...bundle.members, member].sort((a, b) => a.name.localeCompare(b.name));
+          })(),
+        });
+      }
+    },
+    [bundle, pageQueryKey, queryClient],
+  );
+
+  const memberSearchAdd = useMemo(
+    () => ({
+      wardId: effectiveWardId,
+      callingOptions: callingOptionsForAddMember,
+      onCreated: appendCatalogMember,
+    }),
+    [effectiveWardId, callingOptionsForAddMember, appendCatalogMember],
+  );
+
+  const shellRef = useRef<HTMLDivElement>(null);
+  const paperScrollRef = useRef<HTMLDivElement>(null);
+
+  // Fill remaining viewport under the app nav; lock document scroll on this page.
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const html = document.documentElement;
+    const body = document.body;
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      htmlHeight: html.style.height,
+      bodyOverflow: body.style.overflow,
+      bodyHeight: body.style.height,
+      bodyOverscroll: body.style.overscrollBehavior,
+    };
+    html.style.overflow = "hidden";
+    html.style.height = "100%";
+    body.style.overflow = "hidden";
+    body.style.height = "100%";
+    body.style.overscrollBehavior = "none";
+    window.scrollTo(0, 0);
+
+    const fit = () => {
+      window.scrollTo(0, 0);
+      const top = shell.getBoundingClientRect().top;
+      // Sacrament layout cancels ward bottom padding via negative margin; fill to viewport bottom.
+      const next = Math.max(240, Math.floor(window.innerHeight - top));
+      shell.style.height = `${next}px`;
+      shell.style.maxHeight = `${next}px`;
+    };
+
+    fit();
+    const raf = requestAnimationFrame(fit);
+    window.addEventListener("resize", fit);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", fit);
+      html.style.overflow = prev.htmlOverflow;
+      html.style.height = prev.htmlHeight;
+      body.style.overflow = prev.bodyOverflow;
+      body.style.height = prev.bodyHeight;
+      body.style.overscrollBehavior = prev.bodyOverscroll;
+      shell.style.height = "";
+      shell.style.maxHeight = "";
+    };
+  }, []);
+
   return (
-    <div className="mx-auto max-w-6xl space-y-8 pb-8 text-foreground">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      ref={shellRef}
+      className="flex flex-col gap-4 overflow-hidden text-foreground"
+    >
+      <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
           {`Reunion sacramental - Barrio ${wardDisplayName}`}
         </h1>
@@ -1551,7 +1827,7 @@ export function SacramentClient({
       </div>
 
       {wards.length > 1 ? (
-        <div className="space-y-1">
+        <div className="shrink-0 space-y-1">
           <FieldLabel lang={formLang} en="Ward" es="Barrio" />
           <Select
             value={wardId}
@@ -1572,15 +1848,16 @@ export function SacramentClient({
           </Select>
         </div>
       ) : null}
-      <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+
+      <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch gap-4 overflow-hidden lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
         <nav
           aria-label={formT(formLang, { en: "Meeting agenda", es: "Agenda de la reunión" })}
-          className="mb-4 flex gap-1 overflow-x-auto pb-1 lg:sticky lg:top-20 lg:mb-0 lg:block lg:overflow-visible lg:pb-0"
+          className="h-fit w-full self-start overflow-hidden rounded-2xl border border-border bg-surface p-3 shadow-sm lg:p-4"
         >
-          <p className="mb-3 hidden text-sm font-semibold tracking-wide text-foreground/50 uppercase lg:block">
+          <p className="mb-2 hidden px-2 text-[11px] font-medium tracking-wide text-foreground/45 uppercase lg:block">
             {formT(formLang, { en: "Agenda", es: "Agenda" })}
           </p>
-          <ul className="flex gap-1 lg:flex-col lg:gap-1">
+          <ul className="flex flex-wrap gap-1 lg:mt-1.5 lg:flex-col lg:flex-nowrap lg:gap-0.5">
             {agendaItems.map((item) => {
               const active = activeAgendaSection === item.id;
               return (
@@ -1588,14 +1865,25 @@ export function SacramentClient({
                   <a
                     href={`#${item.id}`}
                     className={cn(
-                      "block whitespace-nowrap rounded-lg px-3 py-2.5 text-base transition-colors",
+                      "block whitespace-nowrap rounded-lg px-2.5 py-2 text-sm transition-colors",
                       active
-                        ? "bg-foreground/8 font-semibold text-foreground"
-                        : "text-foreground/60 hover:bg-foreground/5 hover:text-foreground",
+                        ? "bg-primary/15 font-medium text-primary"
+                        : "text-foreground/75 hover:bg-muted/60 hover:text-foreground",
                     )}
                     onClick={(e) => {
                       e.preventDefault();
-                      document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      const target = document.getElementById(item.id);
+                      const scroller = paperScrollRef.current;
+                      if (target && scroller) {
+                        const top =
+                          target.getBoundingClientRect().top -
+                          scroller.getBoundingClientRect().top +
+                          scroller.scrollTop -
+                          8;
+                        scroller.scrollTo({ top, behavior: "smooth" });
+                      } else {
+                        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }
                       setActiveAgendaSection(item.id);
                     }}
                   >
@@ -1607,62 +1895,69 @@ export function SacramentClient({
           </ul>
         </nav>
 
-        <div className="space-y-8">
-          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-1 bg-background sm:gap-x-2">
-            <div
-              role="link"
-              tabIndex={0}
-              aria-label={formT(formLang, { en: "Previous Sunday", es: "Domingo anterior" })}
-              className={cn(
-                sundayStripCellClassName,
-                "flex h-14 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
-              )}
-              onClick={() => {
-                void goToPrevWeek();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
+        <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-hidden">
+          <div className="shrink-0">
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-1 sm:gap-x-2">
+              <div
+                role="link"
+                tabIndex={0}
+                aria-label={formT(formLang, { en: "Previous Sunday", es: "Domingo anterior" })}
+                className={cn(
+                  sundayStripCellClassName,
+                  "flex h-12 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-14 sm:w-10",
+                )}
+                onClick={() => {
                   void goToPrevWeek();
-                }
-              }}
-            >
-              ‹
-            </div>
-            <div
-              className={cn(
-                sundayStripCellClassName,
-                "flex h-14 min-w-0 items-center justify-center px-3 text-center text-base font-semibold leading-snug sm:h-16 sm:text-lg",
-              )}
-            >
-              {formatSacramentSundayDisplayLabel(sacramentSundayLongLabel(displayWeekIso, formLang))}
-            </div>
-            <div
-              role="link"
-              tabIndex={0}
-              aria-label={formT(formLang, { en: "Next Sunday", es: "Domingo siguiente" })}
-              className={cn(
-                sundayStripCellClassName,
-                "flex h-14 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
-              )}
-              onClick={() => {
-                void goToNextWeek();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void goToPrevWeek();
+                  }
+                }}
+              >
+                ‹
+              </div>
+              <div
+                className={cn(
+                  sundayStripCellClassName,
+                  "flex h-12 min-w-0 items-center justify-center px-3 text-center text-base font-semibold leading-snug sm:h-14 sm:text-lg",
+                )}
+              >
+                {formatSacramentSundayDisplayLabel(sacramentSundayLongLabel(displayWeekIso, formLang))}
+              </div>
+              <div
+                role="link"
+                tabIndex={0}
+                aria-label={formT(formLang, { en: "Next Sunday", es: "Domingo siguiente" })}
+                className={cn(
+                  sundayStripCellClassName,
+                  "flex h-12 w-9 cursor-pointer items-center justify-center text-2xl font-semibold leading-none sm:h-14 sm:w-10",
+                )}
+                onClick={() => {
                   void goToNextWeek();
-                }
-              }}
-            >
-              ›
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void goToNextWeek();
+                  }
+                }}
+              >
+                ›
+              </div>
             </div>
           </div>
 
+          <div
+            ref={paperScrollRef}
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+          >
+          <SacramentPaper>
           {showFormSkeleton ? (
             <SacramentFormSkeleton />
           ) : (
-          <div className="space-y-8">
+          <>
           <SacramentSection
             id="sec-header"
             title={formT(formLang, {
@@ -1670,19 +1965,26 @@ export function SacramentClient({
               es: "Encabezado e introducción",
             })}
           >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2">
-                <p className="text-sm font-medium text-foreground">
+            <div className="space-y-3">
+              <p className="text-sm text-neutral-600">
+                {formT(formLang, {
+                  en: "Greeting and welcome – visitors",
+                  es: "Saludo y bienvenida – Visitantes",
+                })}
+              </p>
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                <label
+                  htmlFor="recognition-note"
+                  className="shrink-0 text-sm text-neutral-600"
+                >
                   {formT(formLang, {
-                    en: "Greeting and welcome – visitors",
-                    es: "Saludo y bienvenida – Visitantes",
+                    en: "Recognition of authorities",
+                    es: "Reconocimiento de las autoridades",
                   })}
-                </p>
-              </div>
-              <div className="sm:col-span-2">
-                <FieldLabel lang={formLang} en="Recognition of authorities" es="Reconocimiento de las autoridades" />
-                <Textarea
-                  className={cn(sacramentFormControlClass, "mt-1 min-h-[72px]")}
+                </label>
+                <Input
+                  id="recognition-note"
+                  className={cn(sacramentFormControlClass, "h-10 min-w-0 flex-1")}
                   value={program.recognitionNote}
                   onChange={(e) => updateProgram("recognitionNote", e.target.value)}
                 />
@@ -1696,12 +1998,20 @@ export function SacramentClient({
             action={
               <Link
                 href={`/sacrament/settings?ward=${encodeURIComponent(effectiveWardId)}`}
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
-              >
-                {formT(formLang, {
+                aria-label={formT(formLang, {
                   en: "Edit members",
                   es: "Configurar miembros",
                 })}
+                title={formT(formLang, {
+                  en: "Edit members",
+                  es: "Configurar miembros",
+                })}
+                className={cn(
+                  buttonVariants({ variant: "ghost", size: "icon-sm" }),
+                  "shrink-0 text-neutral-700 hover:bg-neutral-100 hover:text-neutral-950",
+                )}
+              >
+                <Settings className="size-4" aria-hidden />
               </Link>
             }
             description={formT(formLang, {
@@ -1718,6 +2028,9 @@ export function SacramentClient({
                   members={presidingOptions}
                   value={presiding}
                   onChange={(id) => commitRoleAssignment("presiding", id)}
+                  addMember={memberSearchAdd}
+                  className={sacramentFormControlClass}
+                  paper
                 />
               </div>
               <div>
@@ -1728,6 +2041,9 @@ export function SacramentClient({
                   members={conductingOptions}
                   value={conducting}
                   onChange={(id) => commitRoleAssignment("conducting", id)}
+                  addMember={memberSearchAdd}
+                  className={sacramentFormControlClass}
+                  paper
                 />
               </div>
               <div>
@@ -1738,6 +2054,9 @@ export function SacramentClient({
                   members={choristerOptions}
                   value={chorister}
                   onChange={(id) => commitRoleAssignment("chorister", id)}
+                  addMember={memberSearchAdd}
+                  className={sacramentFormControlClass}
+                  paper
                 />
               </div>
               <div>
@@ -1748,6 +2067,9 @@ export function SacramentClient({
                   members={organistOptions}
                   value={organist}
                   onChange={(id) => commitRoleAssignment("organist", id)}
+                  addMember={memberSearchAdd}
+                  className={sacramentFormControlClass}
+                  paper
                 />
               </div>
             </div>
@@ -1800,6 +2122,9 @@ export function SacramentClient({
                   onResponseChange={setOpeningPrayerResponse}
                   onNoteChange={setOpeningPrayerNote}
                   onFulfilledChange={setOpeningPrayerFulfilled}
+                  addMember={memberSearchAdd}
+                  controlClassName={sacramentFormControlClass}
+                  paper
                 />
               </div>
             </div>
@@ -2125,7 +2450,7 @@ export function SacramentClient({
                   placeholder={formT(formLang, { en: "Hymn name", es: "Nombre del himno" })}
                 />
               </div>
-              <div className="rounded-lg border border-dashed border-border/70 bg-background/40 p-3 text-sm text-foreground/80">
+              <div className="rounded-md border border-dashed border-border/70 bg-transparent p-3 text-sm text-foreground/80">
                 <div className="mb-2 flex items-center gap-3 text-[11px] uppercase tracking-wide text-foreground/55">
                   <div className="h-px flex-1 bg-border/70" />
                   <span>
@@ -2192,6 +2517,9 @@ export function SacramentClient({
                         return slots;
                       })
                     }
+                    addMember={memberSearchAdd}
+                    controlClassName={sacramentFormControlClass}
+                    paper
                   />
                 </Fragment>
               ))}
@@ -2250,12 +2578,17 @@ export function SacramentClient({
                     onMemberChange={setClosingPrayer}
                     onResponseChange={setClosingPrayerResponse}
                     onNoteChange={setClosingPrayerNote}
-                onFulfilledChange={setClosingPrayerFulfilled}
-              />
+                    onFulfilledChange={setClosingPrayerFulfilled}
+                    addMember={memberSearchAdd}
+                    controlClassName={sacramentFormControlClass}
+                    paper
+                  />
             </div>
           </SacramentSection>
-          </div>
+          </>
           )}
+          </SacramentPaper>
+          </div>
         </div>
       </div>
 
@@ -2270,6 +2603,7 @@ export function SacramentClient({
         members={allMembers}
         callingPositions={catalogCallings.length > 0 ? catalogCallings : (bundle?.callingPositions ?? [])}
         memberActiveCallings={bundle?.memberActiveCallings ?? {}}
+        sectionTemplates={bundle?.sectionTemplates ?? {}}
         wardId={effectiveWardId}
         onMembersChange={(next) => {
           setCatalogMembers(next);
@@ -2318,7 +2652,10 @@ export function SacramentClient({
           if (!open) setWardSectionToRemove(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent
+          {...sacramentPaperOverlayAttrs}
+          className={cn(sacramentPaperOverlayClass, "gap-5 p-6 sm:max-w-md")}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {formT(formLang, { en: "Remove section?", es: "¿Quitar sección?" })}

@@ -114,6 +114,11 @@ export function ActivityFormDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [customAnnouncement, setCustomAnnouncement] = useState(false);
+  const [memberList, setMemberList] = useState(members);
+
+  useEffect(() => {
+    setMemberList(members);
+  }, [members]);
 
   useEffect(() => {
     if (!open) return;
@@ -318,10 +323,19 @@ export function ActivityFormDialog({
               <MemberSearchSelect
                 id="activity-organizer-select"
                 lang={lang}
-                members={members}
+                members={memberList}
                 value={form.organizerMemberId}
                 onChange={(id) => setForm((f) => ({ ...f, organizerMemberId: id }))}
                 emptyLabel={formT(lang, { en: "Search member…", es: "Buscar miembro…" })}
+                addMember={{
+                  wardId,
+                  onCreated: (member) => {
+                    setMemberList((prev) => {
+                      if (prev.some((m) => m.id === member.id)) return prev;
+                      return [...prev, member].sort((a, b) => a.name.localeCompare(b.name));
+                    });
+                  },
+                }}
               />
             </div>
           </div>

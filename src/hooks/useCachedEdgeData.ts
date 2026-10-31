@@ -3,6 +3,7 @@
 import { wardDb } from "@/lib/wardDb";
 import { useEffect, useState } from "react";
 
+/** Stale-while-revalidate: show IndexedDB immediately, then refresh from the network. */
 export function useCachedEdgeData<T>(
   cacheKey: string,
   apiPath: string,
@@ -27,12 +28,18 @@ export function useCachedEdgeData<T>(
     }
 
     async function run() {
+      const cached = await loadFromCache();
+      if (!cancelled && cached) {
+        setData(cached);
+        setFromCache(true);
+        setLoading(false);
+      }
+
       const offline = typeof navigator !== "undefined" && !navigator.onLine;
       if (offline) {
-        const cached = await loadFromCache();
         if (!cancelled) {
-          setData(cached);
-          setFromCache(true);
+          if (!cached) setData(null);
+          setFromCache(!!cached);
           setLoading(false);
         }
         return;
@@ -55,10 +62,9 @@ export function useCachedEdgeData<T>(
           }
         }
       } catch {
-        const cached = await loadFromCache();
-        if (!cancelled) {
-          setData(cached);
-          setFromCache(!!cached);
+        if (!cancelled && !cached) {
+          setData(null);
+          setFromCache(false);
         }
       } finally {
         if (!cancelled) setLoading(false);

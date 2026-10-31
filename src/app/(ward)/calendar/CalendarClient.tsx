@@ -21,9 +21,18 @@ import {
 import { cn } from "@/lib/utils";
 import { sundayStripCellClassName } from "@/lib/formControlStyles";
 import { formatLocalISODate } from "@/lib/sacramentProgram";
+import { useWardCachedState } from "@/hooks/useWardCachedState";
+import {
+  readWardPageCache,
+  wardPageKeys,
+  writeWardPageCache,
+  WARD_PAGE_GC_MS,
+  WARD_PAGE_STALE_MS,
+} from "@/lib/wardPageCache";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type FormLang = "en" | "es";
@@ -54,10 +63,9 @@ export function CalendarClient({
   initialActivities: WardCalendarActivity[];
   members: { id: string; name: string }[];
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [formLang, setFormLang] = useState<FormLang>("es");
-  const [activities, setActivities] = useState(initialActivities);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [editingActivity, setEditingActivity] = useState<WardCalendarActivity | null>(null);
@@ -68,9 +76,13 @@ export function CalendarClient({
   const urlMonthRaw = searchParams.get("month")?.trim() ?? "";
   const effectiveMonth = /^\d{4}-\d{2}$/.test(urlMonthRaw) ? urlMonthRaw : month;
 
-  useEffect(() => {
-    setActivities(initialActivities);
-  }, [initialActivities, effectiveWardId, effectiveMonth]);
+  const monthQueryKey = wardPageKeys.calendar(effectiveWardId, effectiveMonth);
+  const serverSeed =
+    effectiveWardId === wardId && effectiveMonth === month ? initialActivities : ([] as WardCalendarActivity[]);
+  const [activities, setActivities] = useWardCachedState<WardCalendarActivity[]>(
+    monthQueryKey,
+    serverSeed,
+  );
 
   const wardDisplayName = useMemo(() => {
     return wards.find((w) => w.id === effectiveWardId)?.name ?? "—";
@@ -100,8 +112,16 @@ export function CalendarClient({
     return map;
   }, [activities]);
 
-  const refreshMonth = useCallback(
+  const ensureMonth = useCallback(
     async (targetMonth: string, targetWard: string) => {
+      const key = wardPageKeys.calendar(targetWard, targetMonth);
+      const memory = queryClient.getQueryData<WardCalendarActivity[]>(key);
+      if (memory) return memory;
+      const fromIdb = await readWardPageCache<WardCalendarActivity[]>(key);
+      if (fromIdb) {
+        queryClient.setQueryData(key, fromIdb);
+        return fromIdb;
+      }
       setLoadingMonth(true);
       try {
         const res = await fetch(
@@ -113,15 +133,27 @@ export function CalendarClient({
           error?: string;
         };
         if (!res.ok || !json.ok) throw new Error(json.error ?? "Failed to load");
-        setActivities(json.activities ?? []);
+        const next = json.activities ?? [];
+        queryClient.setQueryData(key, next);
+        void writeWardPageCache(key, next);
+        return next;
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to load calendar");
+        return null;
       } finally {
         setLoadingMonth(false);
       }
     },
-    [],
+    [queryClient],
   );
+
+  const softCalendarUrl = useCallback(async (targetMonth: string, targetWard = effectiveWardId) => {
+    const ready = await ensureMonth(targetMonth, targetWard);
+    if (!ready) return;
+    window.history.pushState(null, "", calendarHref(targetMonth, targetWard));
+    void ensureMonth(shiftMonth(targetMonth, -1), targetWard);
+    void ensureMonth(shiftMonth(targetMonth, 1), targetWard);
+  }, [ensureMonth, calendarHref, effectiveWardId]);
 
   function openAddDialog(date: string) {
     setSelectedDate(date);
@@ -194,7 +226,7 @@ export function CalendarClient({
   const today = todayIso();
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 pb-8 text-foreground">
+    <div className="w-full space-y-8 pb-8 text-foreground">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
@@ -231,7 +263,7 @@ export function CalendarClient({
           <Select
             value={effectiveWardId}
             onValueChange={(v) => {
-              if (v) router.push(calendarHref(effectiveMonth, v));
+              if (v) void softCalendarUrl(effectiveMonth, v);
             }}
           >
             <SelectTrigger className="w-[220px]">
@@ -249,17 +281,17 @@ export function CalendarClient({
       ) : null}
 
       <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-1 sm:gap-x-2">
-        <Link
-          href={calendarHref(prevMonth)}
+        <button
+          type="button"
           aria-label={formT(formLang, { en: "Previous month", es: "Mes anterior" })}
           className={cn(
             sundayStripCellClassName,
             "flex h-14 w-9 items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
           )}
-          onClick={() => void refreshMonth(prevMonth, effectiveWardId)}
+          onClick={() => void softCalendarUrl(prevMonth)}
         >
           ‹
-        </Link>
+        </button>
         <div
           className={cn(
             sundayStripCellClassName,
@@ -273,17 +305,17 @@ export function CalendarClient({
             </span>
           ) : null}
         </div>
-        <Link
-          href={calendarHref(nextMonth)}
+        <button
+          type="button"
           aria-label={formT(formLang, { en: "Next month", es: "Mes siguiente" })}
           className={cn(
             sundayStripCellClassName,
             "flex h-14 w-9 items-center justify-center text-2xl font-semibold leading-none sm:h-16 sm:w-10",
           )}
-          onClick={() => void refreshMonth(nextMonth, effectiveWardId)}
+          onClick={() => void softCalendarUrl(nextMonth)}
         >
           ›
-        </Link>
+        </button>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">

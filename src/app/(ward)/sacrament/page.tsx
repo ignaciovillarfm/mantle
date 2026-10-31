@@ -1,15 +1,17 @@
 import { SacramentClient } from "./SacramentClient";
-import { PrefetchSacramentWeeks } from "./PrefetchSacramentWeeks";
-import { loadSacramentPageState } from "./loadSacramentState";
 import { fetchUserWardRoles } from "@/lib/serverRoles";
 import {
   formatLocalISODate,
-  shiftCalendarWeek,
   startOfWeekSundayFromISO,
   upcomingSacramentSunday,
 } from "@/lib/sacramentProgram";
 import { redirect } from "next/navigation";
 
+/**
+ * Fast shell only — no sacrament DB load here.
+ * React Query (client) serves cached Sundays instantly; cold loads hit /api/sacrament/state.
+ * Avoids `loading.tsx` multi-second RSC waits when switching pages.
+ */
 export default async function SacramentPage({
   searchParams,
 }: {
@@ -57,40 +59,5 @@ export default async function SacramentPage({
     redirect(`/sacrament?${q.toString()}`);
   }
 
-  const prevWeekIso = shiftCalendarWeek(meetingDate, -1);
-  const nextWeekIso = shiftCalendarWeek(meetingDate, 1);
-
-  const [initial, initialPrev, initialNext] = await Promise.all([
-    loadSacramentPageState(wardId, meetingDate),
-    loadSacramentPageState(wardId, prevWeekIso),
-    loadSacramentPageState(wardId, nextWeekIso),
-  ]);
-
-  const sacramentHref = (date: string) => {
-    const q = new URLSearchParams();
-    q.set("ward", wardId);
-    q.set("date", date);
-    return `/sacrament?${q.toString()}`;
-  };
-
-  const prevSacramentUrl = sacramentHref(prevWeekIso);
-  const nextSacramentUrl = sacramentHref(nextWeekIso);
-
-  return (
-    <>
-      <PrefetchSacramentWeeks urls={[prevSacramentUrl, nextSacramentUrl]} />
-      <SacramentClient
-        wards={wards}
-        wardId={wardId}
-        meetingDate={meetingDate}
-        initial={initial}
-        adjacentWeeks={{
-          prevIso: prevWeekIso,
-          prev: initialPrev,
-          nextIso: nextWeekIso,
-          next: initialNext,
-        }}
-      />
-    </>
-  );
+  return <SacramentClient wards={wards} wardId={wardId} meetingDate={meetingDate} />;
 }

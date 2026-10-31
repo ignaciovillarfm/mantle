@@ -1,18 +1,27 @@
 import type { SacramentPageBundle } from "@/app/(ward)/sacrament/loadSacramentState";
 import type { QueryClient, QueryFunctionContext } from "@tanstack/react-query";
+import { readSacramentPageCache, writeSacramentPageCache } from "./sacramentPageCache";
 import { sacramentQueryKeys } from "./sacramentQueryKeys";
 
 export type SacramentPageQueryKey = ReturnType<typeof sacramentQueryKeys.page>;
 
-/** Prefetch fills the cache but `placeholderData` does not count as `data`, so the default `queryFn` still hit the network. Return cache first to avoid duplicate ~GET /api/sacrament/state. */
-export function loadSacramentPageQuery(
+/** Memory → IndexedDB → network. Prefetch/setQueryData hits skip the network. */
+export async function loadSacramentPageQuery(
   queryClient: QueryClient,
   ctx: QueryFunctionContext<SacramentPageQueryKey>,
 ): Promise<SacramentPageBundle> {
   const hit = queryClient.getQueryData<SacramentPageBundle>(ctx.queryKey);
-  if (hit) return Promise.resolve(hit);
+  if (hit) return hit;
   const [, , wardId, date] = ctx.queryKey;
-  return fetchSacramentPageJson(wardId, date);
+  const fromIdb = await readSacramentPageCache(wardId, date);
+  if (fromIdb) {
+    queryClient.setQueryData(ctx.queryKey, fromIdb);
+    return fromIdb;
+  }
+  const fresh = await fetchSacramentPageJson(wardId, date);
+  queryClient.setQueryData(ctx.queryKey, fresh);
+  void writeSacramentPageCache(wardId, date, fresh);
+  return fresh;
 }
 
 export async function fetchSacramentPageJson(wardId: string, meetingDate: string): Promise<SacramentPageBundle> {

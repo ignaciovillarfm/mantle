@@ -82,6 +82,29 @@ export function firstPoolMember(poolIds: readonly string[]): string | null {
   return dedupeMemberIds(poolIds)[0] ?? null;
 }
 
+/** True for the Bishop calling only (not counselors / assistants). */
+export function isBishopCallingTitle(title: string | null | undefined): boolean {
+  const t = (title ?? "").trim().toLowerCase();
+  return t === "bishop" || t === "obispo";
+}
+
+/**
+ * Default Preside assignee for a Sunday with no saved meeting:
+ * prefer a configured pool member who holds Bishop, else the first pool member.
+ */
+export function defaultPresidingMemberId(
+  poolIds: readonly string[],
+  memberActiveCallings: Record<string, { title: string }[]> | null | undefined,
+): string | null {
+  const ids = dedupeMemberIds(poolIds);
+  if (ids.length === 0) return null;
+  for (const id of ids) {
+    const callings = memberActiveCallings?.[id] ?? [];
+    if (callings.some((c) => isBishopCallingTitle(c.title))) return id;
+  }
+  return ids[0] ?? null;
+}
+
 /** Dropdown: assigned member first, then only members configured for this role in settings. */
 export function roleMemberOptions(
   poolIds: readonly string[],

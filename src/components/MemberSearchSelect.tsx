@@ -1,5 +1,11 @@
 "use client";
 
+import { AddMemberForm } from "@/app/(ward)/members/AddMemberForm";
+import {
+  sacramentPaperModalHeaderClass,
+  sacramentPaperOverlayAttrs,
+  sacramentPaperOverlayClass,
+} from "@/app/(ward)/sacrament/SacramentSection";
 import { formControlClassName } from "@/lib/formControlStyles";
 import {
   Command,
@@ -8,6 +14,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { filterMembersByQuery, type MemberOption } from "@/lib/members/memberSearch";
 import { cn } from "@/lib/utils";
@@ -29,6 +41,13 @@ function scrollChildIntoContainer(child: HTMLElement, container: HTMLElement) {
   }
 }
 
+export type MemberSearchAddMember = {
+  wardId: string;
+  callingOptions?: { id: string; title: string }[];
+  /** Called after the member is created so parents can append to their lists. */
+  onCreated: (member: { id: string; name: string }) => void;
+};
+
 export function MemberSearchSelect({
   id,
   value,
@@ -38,7 +57,8 @@ export function MemberSearchSelect({
   disabled,
   className,
   emptyLabel,
-  footerAction,
+  addMember,
+  paper = false,
 }: {
   id: string;
   value: string | null;
@@ -48,11 +68,14 @@ export function MemberSearchSelect({
   disabled?: boolean;
   className?: string;
   emptyLabel?: string;
-  /** Extra command row (e.g. add member) shown below the member list. */
-  footerAction?: { label: string; onSelect: () => void };
+  /** Built-in “add new member” dialog + footer row. */
+  addMember?: MemberSearchAddMember;
+  /** Ink-on-white menu (portaled; matches sacrament paper sheet). */
+  paper?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -126,77 +149,130 @@ export function MemberSearchSelect({
   }, [open]);
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setSearch("");
-      }}
-    >
-      <PopoverTrigger
-        id={id}
-        disabled={disabled}
-        className={cn(
-          formControlClassName,
-          "mt-1 flex h-10 w-full cursor-pointer items-center justify-between gap-2 border-solid px-3 py-0 font-normal",
-          "data-popup-open:border-primary data-popup-open:shadow-[var(--shadow-focus)]",
-          !value && "text-[var(--placeholder)]",
-          className,
-        )}
+    <>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setSearch("");
+        }}
       >
-        <span className="truncate">{displayLabel}</span>
-        <ChevronDownIcon className="size-4 shrink-0 text-text-secondary" />
-      </PopoverTrigger>
-      <PopoverContent
-        data-member-search-select=""
-        className="w-[min(100vw-2rem,24rem)] p-0"
-        align="start"
-        initialFocus={false}
-      >
-        <Command shouldFilter={false}>
-          <CommandInput
-            ref={inputRef}
-            placeholder={t(lang, "Search by name…", "Buscar por nombre…")}
-            value={search}
-            onValueChange={setSearch}
-          />
-          <CommandList ref={listRef}>
-            <CommandEmpty>
-              {t(lang, "No members match your search.", "Ningún miembro coincide con la búsqueda.")}
-            </CommandEmpty>
-            <CommandItem
-              value="__none__"
-              onSelect={() => select(null)}
+        <PopoverTrigger
+          id={id}
+          disabled={disabled}
+          className={cn(
+            formControlClassName,
+            "mt-1 flex h-10 w-full cursor-pointer items-center justify-between gap-2 border-solid px-3 py-0 font-normal",
+            "data-popup-open:border-primary data-popup-open:shadow-[var(--shadow-focus)]",
+            !value && "text-[var(--placeholder)]",
+            className,
+          )}
+        >
+          <span className="truncate">{displayLabel}</span>
+          <ChevronDownIcon className="size-4 shrink-0 text-text-secondary" />
+        </PopoverTrigger>
+        <PopoverContent
+          data-member-search-select=""
+          {...(paper ? sacramentPaperOverlayAttrs : {})}
+          className={cn(
+            "w-(--anchor-width) min-w-(--anchor-width) gap-0 overflow-hidden p-0 shadow-lg ring-0",
+            paper ? sacramentPaperOverlayClass : "rounded-lg",
+          )}
+          align="start"
+          initialFocus={false}
+        >
+          <Command
+            shouldFilter={false}
+            className={cn(
+              "bg-transparent p-0",
+              paper ? "rounded-none" : "rounded-lg",
+              "[&_[data-slot=command-input-wrapper]]:border-b [&_[data-slot=command-input-wrapper]]:border-border/60 [&_[data-slot=command-input-wrapper]]:p-1.5",
+              "[&_[data-slot=input-group]]:h-9! [&_[data-slot=input-group]]:border-0 [&_[data-slot=input-group]]:bg-muted/50 [&_[data-slot=input-group]]:shadow-none!",
+              paper
+                ? "[&_[data-slot=input-group]]:rounded-none!"
+                : "[&_[data-slot=input-group]]:rounded-md!",
+            )}
+          >
+            <CommandInput
+              ref={inputRef}
+              placeholder={t(lang, "Search by name…", "Buscar por nombre…")}
+              value={search}
+              onValueChange={setSearch}
+            />
+            <CommandList ref={listRef} className="p-1">
+              <CommandEmpty>
+                {t(lang, "No members match your search.", "Ningún miembro coincide con la búsqueda.")}
+              </CommandEmpty>
+              <CommandItem
+                value="__none__"
+                onSelect={() => select(null)}
+              >
+                {t(lang, "— None —", "— Ninguno —")}
+                {!value ? <CheckIcon className="ml-auto size-4" /> : null}
+              </CommandItem>
+              {filtered.map((m) => (
+                <CommandItem
+                  key={m.id}
+                  value={`${m.name} ${m.id}`}
+                  onSelect={() => select(m.id)}
+                >
+                  <span className="truncate">{m.name}</span>
+                  {value === m.id ? <CheckIcon className="ml-auto size-4" /> : null}
+                </CommandItem>
+              ))}
+              {addMember ? (
+                <CommandItem
+                  value="__add_member__"
+                  onSelect={() => {
+                    close();
+                    // Defer so the member popover finishes closing before the add dialog opens.
+                    queueMicrotask(() => setAddOpen(true));
+                  }}
+                  className="border-t border-border text-foreground/80"
+                >
+                  {t(lang, "+ Add new member…", "+ Agregar miembro…")}
+                </CommandItem>
+              ) : null}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      {addMember ? (
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogContent
+            {...(paper ? sacramentPaperOverlayAttrs : {})}
+            align={paper ? "paper" : "page"}
+            positionerClassName="z-[110]"
+            className={cn(
+              "z-[110] flex max-h-[min(90vh,720px)] w-full max-w-[calc(100%-1rem)] flex-col gap-0 overflow-y-auto p-0 sm:max-w-md",
+              paper && sacramentPaperOverlayClass,
+            )}
+            overlayClassName="z-[110]"
+          >
+            <DialogHeader
+              className={
+                paper ? sacramentPaperModalHeaderClass : "space-y-1.5 px-6 py-5 pr-14"
+              }
             >
-              {t(lang, "— None —", "— Ninguno —")}
-              {!value ? <CheckIcon className="ml-auto size-4" /> : null}
-            </CommandItem>
-            {filtered.map((m) => (
-              <CommandItem
-                key={m.id}
-                value={`${m.name} ${m.id}`}
-                onSelect={() => select(m.id)}
-              >
-                <span className="truncate">{m.name}</span>
-                {value === m.id ? <CheckIcon className="ml-auto size-4" /> : null}
-              </CommandItem>
-            ))}
-            {footerAction ? (
-              <CommandItem
-                value="__footer_action__"
-                onSelect={() => {
-                  close();
-                  // Defer so the member popover finishes closing before a nested modal opens.
-                  queueMicrotask(() => footerAction.onSelect());
+              <DialogTitle>
+                {t(lang, "Add member", "Agregar miembro")}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="px-6 pb-6">
+              <AddMemberForm
+                wardId={addMember.wardId}
+                callingOptions={addMember.callingOptions ?? []}
+                onSuccess={(member) => {
+                  addMember.onCreated(member);
+                  onChange(member.id);
+                  setAddOpen(false);
                 }}
-                className="border-t border-border text-foreground/80"
-              >
-                {footerAction.label}
-              </CommandItem>
-            ) : null}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
 import { useOnline } from "@/hooks/useOnline";
+import { useWardCachedState } from "@/hooks/useWardCachedState";
+import { wardPageKeys } from "@/lib/wardPageCache";
 import { hoverRevealRemoveClassName } from "@/lib/hoverRevealRemove";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AddCallingModal,
   type CallingMemberOption,
@@ -139,13 +141,13 @@ export function CallingsClient({
   addModalTitle?: string;
 }) {
   const online = useOnline();
-  const [items, setItems] = useState(callings);
+  const cacheScope = `${title}:${addModalInitialStatus}`;
+  const [items, setItems] = useWardCachedState<CallingRow[]>(
+    wardPageKeys.callings(cacheScope),
+    callings,
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    setItems(callings);
-  }, [callings]);
 
   const canMutate = online;
 
@@ -234,6 +236,7 @@ export function CallingsClient({
             initialStatus={addModalInitialStatus}
             buttonLabel={addModalButtonLabel}
             modalTitle={addModalTitle}
+            onCreated={(row) => setItems((prev) => [row, ...prev])}
           />
         ) : null}
       </div>

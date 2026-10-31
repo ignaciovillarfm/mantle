@@ -1,32 +1,19 @@
 "use client";
 
 import { EditMemberModal, type EditableMember } from "./EditMemberModal";
+import { MemberDetailSheet } from "./MemberDetailSheet";
+import type { MembersDirectoryRow } from "./memberDirectoryTypes";
+import { useWardCachedState } from "@/hooks/useWardCachedState";
 import { filterMembersByQuery } from "@/lib/members/memberSearch";
+import { wardPageKeys } from "@/lib/wardPageCache";
 import { useMemo, useState } from "react";
 
-export type MembersDirectoryRow = {
-  id: string;
-  name: string;
-  is_youth: boolean;
-  lastTalkSunday: string | null;
-  lastTalkNote: string | null;
-  lastTalkDelivered: boolean | null;
-  lastPrayerSunday: string | null;
-  lastPrayerRole: string;
-  lastPrayerNote: string | null;
-  lastPrayerFulfilled: boolean | null;
-};
+export type { MembersDirectoryRow };
 
-function formatDelivered(v: boolean | null): string {
-  if (v === true) return "Yes";
-  if (v === false) return "No";
-  return "—";
-}
-
-function truncate(s: string | null, max: number): string {
-  if (!s) return "—";
-  if (s.length <= max) return s;
-  return `${s.slice(0, max - 1)}…`;
+function formatPrayerCell(sunday: string | null, role: string): string {
+  if (!sunday) return "—";
+  if (!role || role === "—") return sunday;
+  return `${sunday} · ${role}`;
 }
 
 export function MembersDirectoryClient({
@@ -36,21 +23,28 @@ export function MembersDirectoryClient({
   wardName: string;
   members: MembersDirectoryRow[];
 }) {
+  const [rows, setRows] = useWardCachedState<MembersDirectoryRow[]>(
+    [...wardPageKeys.members, wardName],
+    members,
+  );
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<EditableMember | null>(null);
+  const [selected, setSelected] = useState<MembersDirectoryRow | null>(null);
   const filtered = useMemo(
     () =>
       filterMembersByQuery(
-        members.map((m) => ({ id: m.id, name: m.name })),
+        rows.map((m) => ({ id: m.id, name: m.name })),
         query,
-      ).map((m) => members.find((row) => row.id === m.id)!),
-    [members, query],
+      ).map((m) => rows.find((row) => row.id === m.id)!),
+    [rows, query],
   );
 
   return (
-    <section className="rounded-xl border border-border bg-surface">
+    <section className="overflow-hidden rounded-xl border border-border bg-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/60">{wardName}</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/60">
+          {wardName}
+        </h2>
         <label className="relative block w-full max-w-xs">
           <span className="sr-only">Search members</span>
           <input
@@ -62,51 +56,52 @@ export function MembersDirectoryClient({
           />
         </label>
       </div>
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-left text-sm">
+        <table className="w-full min-w-[520px] text-left text-sm">
           <thead>
-            <tr className="border-b border-border text-foreground/60">
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="px-4 py-2 font-medium">Last talk assignment</th>
-              <th className="px-4 py-2 font-medium">Talk notes</th>
-              <th className="px-4 py-2 font-medium">Spoke that day</th>
-              <th className="px-4 py-2 font-medium">Last prayer assignment</th>
-              <th className="px-4 py-2 font-medium">Opening / closing</th>
-              <th className="px-4 py-2 font-medium">Prayer notes</th>
-              <th className="px-4 py-2 font-medium">Prayed that day</th>
-              <th className="px-4 py-2 font-medium">
-                <span className="sr-only">Actions</span>
-              </th>
+            <tr className="border-b border-border text-foreground/55">
+              <th className="px-4 py-2.5 font-medium">Name</th>
+              <th className="px-4 py-2.5 font-medium">Phone</th>
+              <th className="px-4 py-2.5 font-medium">Last talk</th>
+              <th className="px-4 py-2.5 font-medium">Last prayer</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {filtered.map((m) => (
-              <tr key={m.id} className="align-top">
-                <td className="px-4 py-3 font-medium">
-                  {m.name}
-                  {m.is_youth ? <span className="ml-1 text-foreground/50">· youth</span> : null}
+              <tr
+                key={m.id}
+                className="cursor-pointer transition-colors hover:bg-muted/30"
+                onClick={() => setSelected(m)}
+              >
+                <td className="px-4 py-3">
+                  <span className="font-medium text-foreground">{m.name}</span>
+                  {m.is_youth ? (
+                    <span className="ml-1.5 text-xs text-foreground/45">Youth</span>
+                  ) : null}
                 </td>
-                <td className="px-4 py-3 text-foreground/80">{m.lastTalkSunday ?? "—"}</td>
-                <td className="max-w-[180px] px-4 py-3 text-foreground/80" title={m.lastTalkNote ?? undefined}>
-                  {truncate(m.lastTalkNote, 72)}
+                <td className="px-4 py-3 text-foreground/75">
+                  {m.phone ? (
+                    <a
+                      href={`tel:${m.phone.replace(/[^\d+]/g, "")}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[var(--accent-primary)] underline-offset-2 hover:underline"
+                    >
+                      {m.phone}
+                    </a>
+                  ) : (
+                    <span className="text-foreground/35">—</span>
+                  )}
                 </td>
-                <td className="px-4 py-3 text-foreground/80">{formatDelivered(m.lastTalkDelivered)}</td>
-                <td className="px-4 py-3 text-foreground/80">{m.lastPrayerSunday ?? "—"}</td>
-                <td className="px-4 py-3 text-foreground/80">{m.lastPrayerRole}</td>
-                <td className="max-w-[180px] px-4 py-3 text-foreground/80" title={m.lastPrayerNote ?? undefined}>
-                  {truncate(m.lastPrayerNote, 72)}
+                <td className="px-4 py-3 tabular-nums text-foreground/75">
+                  {m.lastTalkSunday ?? <span className="text-foreground/35">—</span>}
                 </td>
-                <td className="px-4 py-3 text-foreground/80">{formatDelivered(m.lastPrayerFulfilled)}</td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditing({ id: m.id, name: m.name, is_youth: m.is_youth })
-                    }
-                    className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
-                  >
-                    Edit
-                  </button>
+                <td className="px-4 py-3 text-foreground/75">
+                  {m.lastPrayerSunday ? (
+                    formatPrayerCell(m.lastPrayerSunday, m.lastPrayerRole)
+                  ) : (
+                    <span className="text-foreground/35">—</span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -114,7 +109,32 @@ export function MembersDirectoryClient({
         </table>
       </div>
 
-      <EditMemberModal member={editing} onClose={() => setEditing(null)} />
+      <EditMemberModal
+        member={editing}
+        onClose={() => setEditing(null)}
+        onSaved={(next) => {
+          setRows((prev) =>
+            prev.map((m) =>
+              m.id === next.id ? { ...m, name: next.name, is_youth: next.is_youth } : m,
+            ),
+          );
+          setSelected((sel) =>
+            sel && sel.id === next.id
+              ? { ...sel, name: next.name, is_youth: next.is_youth }
+              : sel,
+          );
+        }}
+      />
+
+      <MemberDetailSheet
+        member={selected}
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        onEdit={(m) => {
+          setEditing({ id: m.id, name: m.name, is_youth: m.is_youth });
+        }}
+      />
+
       {filtered.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-foreground/50">
           {query.trim() ? "No members match your search." : "No members in this ward."}
