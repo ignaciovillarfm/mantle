@@ -46,7 +46,7 @@ export default async function SacramentRolePoolSettingsPage({
   }));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 pb-8 text-foreground">
+    <div className="w-full space-y-6 pb-8 text-foreground">
       {wards.length > 1 ? (
         <div className="flex flex-wrap gap-2">
           {wards.map((w) => (

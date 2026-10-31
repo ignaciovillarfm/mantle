@@ -1,6 +1,9 @@
 "use client";
 
-import { MemberSearchSelect } from "@/components/MemberSearchSelect";
+import {
+  MemberSearchSelect,
+  type MemberSearchAddMember,
+} from "@/components/MemberSearchSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +15,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  sacramentPaperOverlayAttrs,
+  sacramentPaperOverlayClass,
+} from "@/app/(ward)/sacrament/SacramentSection";
 import type { SacramentFormLang, TalkResponseStatus } from "@/lib/sacramentProgram";
+import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
 function t(lang: SacramentFormLang, en: string, es: string) {
@@ -59,6 +67,9 @@ export function PrayerAssignmentCard({
   onResponseChange,
   onNoteChange,
   onFulfilledChange,
+  addMember,
+  controlClassName,
+  paper,
 }: {
   variant: "opening" | "closing";
   lang: SacramentFormLang;
@@ -72,6 +83,9 @@ export function PrayerAssignmentCard({
   onResponseChange: (status: TalkResponseStatus) => void;
   onNoteChange: (note: string | null) => void;
   onFulfilledChange: (fulfilled: boolean | null) => void;
+  addMember?: MemberSearchAddMember;
+  controlClassName?: string;
+  paper?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const recorded = prayerRecorded(fulfilled);
@@ -139,6 +153,9 @@ export function PrayerAssignmentCard({
             members={members}
             value={memberId}
             onChange={handleMemberChange}
+            addMember={addMember}
+            className={controlClassName}
+            paper={paper}
           />
 
           {hasMember ? (
@@ -151,14 +168,22 @@ export function PrayerAssignmentCard({
                   <FieldLabel lang={lang} en="Response" es="Respuesta" />
                   <Select
                     value={responseStatus}
+                    items={{
+                      pending: t(lang, "Pending", "Pendiente"),
+                      accepted: t(lang, "Accepted", "Aceptó"),
+                      declined: t(lang, "Declined", "Declinó"),
+                    }}
                     onValueChange={(v) => {
                       if (v) onResponseChange(v as TalkResponseStatus);
                     }}
                   >
-                    <SelectTrigger id={`${selectId}-res`} className="mt-1 w-full">
+                    <SelectTrigger id={`${selectId}-res`} className={cn("mt-1 w-full", controlClassName)}>
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent
+                      {...(paper ? sacramentPaperOverlayAttrs : {})}
+                      className={cn(paper && sacramentPaperOverlayClass)}
+                    >
                       <SelectItem value="pending">{t(lang, "Pending", "Pendiente")}</SelectItem>
                       <SelectItem value="accepted">{t(lang, "Accepted", "Aceptó")}</SelectItem>
                       <SelectItem value="declined">{t(lang, "Declined", "Declinó")}</SelectItem>
@@ -168,7 +193,7 @@ export function PrayerAssignmentCard({
                 <div>
                   <FieldLabel lang={lang} en="Note (if declined)" es="Nota (si declinó)" />
                   <Input
-                    className="mt-1"
+                    className={cn("mt-1", controlClassName)}
                     value={responseNote ?? ""}
                     onChange={(e) => onNoteChange(e.target.value || null)}
                   />

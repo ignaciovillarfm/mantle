@@ -42,42 +42,77 @@ function DialogOverlay({
 function DialogContent({
   className,
   overlayClassName,
+  positionerClassName,
+  align = "page",
   children,
   showCloseButton = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
   overlayClassName?: string
+  /** Extra classes for the page-aligned positioning shell. */
+  positionerClassName?: string
+  /**
+   * `page` — center in the ward max-w-6xl shell (matches layout).
+   * `paper` — on lg+, center in the paper column past the agenda sidebar.
+   */
+  align?: "page" | "paper"
 }) {
   return (
     <DialogPortal>
       <DialogOverlay className={overlayClassName} />
-      <DialogPrimitive.Popup
-        data-slot="dialog-content"
+      {/*
+        Match the ward page shell so the dialog shares the same band as the
+        content behind. Avoid translate centering — zoom animations override it.
+      */}
+      <div
+        data-slot="dialog-positioner"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
+          "pointer-events-none fixed inset-0 z-50 overflow-y-auto",
+          positionerClassName,
         )}
-        {...props}
       >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            render={
-              <Button
-                variant="ghost"
-                className="absolute top-2 right-2"
-                size="icon-sm"
-              />
-            }
-          >
-            <XIcon
-            />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Popup>
+        <div
+          className={cn(
+            "mx-auto grid min-h-full w-full max-w-6xl px-4 py-6",
+            align === "paper"
+              ? "grid-cols-1 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8"
+              : "grid-cols-1",
+          )}
+        >
+          {align === "paper" ? (
+            <div className="hidden lg:block" aria-hidden />
+          ) : null}
+          <div className="flex min-w-0 items-center justify-center">
+            <DialogPrimitive.Popup
+              data-slot="dialog-content"
+              className={cn(
+                "pointer-events-auto relative z-50 my-auto grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+                className
+              )}
+              {...props}
+            >
+              {children}
+              {showCloseButton && (
+                <DialogPrimitive.Close
+                  data-slot="dialog-close"
+                  render={
+                    <Button
+                      variant="ghost"
+                      className="absolute top-2 right-2"
+                      size="icon-sm"
+                    />
+                  }
+                >
+                  <XIcon
+                  />
+                  <span className="sr-only">Close</span>
+                </DialogPrimitive.Close>
+              )}
+            </DialogPrimitive.Popup>
+          </div>
+        </div>
+      </div>
     </DialogPortal>
   )
 }

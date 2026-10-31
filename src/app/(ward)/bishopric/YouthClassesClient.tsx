@@ -36,7 +36,9 @@ import {
   type YouthClass,
   type YouthClassAssignment,
 } from "@/lib/youth/youthClassAssignment";
-import { useMemo, useRef, useState } from "react";
+import { useWardCachedState } from "@/hooks/useWardCachedState";
+import { wardPageKeys } from "@/lib/wardPageCache";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type MemberOption = { id: string; name: string; is_youth: boolean };
@@ -78,27 +80,35 @@ export function YouthClassesClient({
   initialAssignments: YouthClassAssignment[];
   members: MemberOption[];
 }) {
-  const [assignments, setAssignments] = useState(initialAssignments);
+  const [assignments, setAssignments] = useWardCachedState(
+    wardPageKeys.youthClasses(wardId),
+    initialAssignments,
+  );
   const [target, setTarget] = useState<EditorTarget | null>(null);
   const [form, setForm] = useState<FormState>(() => emptyForm());
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [youthOnly, setYouthOnly] = useState(true);
+  const [memberList, setMemberList] = useState(members);
   const pendingClassRef = useRef<YouthClass | null>(null);
 
   const todayIso = formatLocalISODate(new Date());
   const sundays = useMemo(() => sundayWindow(new Date()), []);
 
+  useEffect(() => {
+    setMemberList(members);
+  }, [members]);
+
   const memberNameById = useMemo(
-    () => new Map(members.map((m) => [m.id, m.name])),
-    [members],
+    () => new Map(memberList.map((m) => [m.id, m.name])),
+    [memberList],
   );
 
   const pickerMembers = useMemo(() => {
-    const pool = youthOnly ? members.filter((m) => m.is_youth) : members;
-    const list = pool.length > 0 ? pool : members;
+    const pool = youthOnly ? memberList.filter((m) => m.is_youth) : memberList;
+    const list = pool.length > 0 ? pool : memberList;
     return list.map((m) => ({ id: m.id, name: m.name }));
-  }, [members, youthOnly]);
+  }, [memberList, youthOnly]);
 
   const byKey = useMemo(
     () => new Map(assignments.map((a) => [assignmentKey(a.sunday_date, a.quorum), a])),
@@ -319,6 +329,18 @@ export function YouthClassesClient({
                   value={form.memberId}
                   onChange={(id) => setForm((f) => ({ ...f, memberId: id }))}
                   emptyLabel="Search member…"
+                  addMember={{
+                    wardId,
+                    onCreated: (member) => {
+                      setMemberList((prev) => {
+                        if (prev.some((m) => m.id === member.id)) return prev;
+                        return [...prev, { ...member, is_youth: false }].sort((a, b) =>
+                          a.name.localeCompare(b.name),
+                        );
+                      });
+                      setYouthOnly(false);
+                    },
+                  }}
                 />
               </div>
             </div>

@@ -66,14 +66,23 @@ export default async function CallingsPage() {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span className="rounded-md bg-foreground/10 px-2 py-1 font-medium text-foreground">
+      <nav className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-muted/30 p-1 text-sm">
+        <span className="rounded-lg bg-background px-3 py-1.5 font-medium text-foreground shadow-sm">
           Current callings
         </span>
-        <Link href="/callings/proposed" className="text-foreground/70 underline underline-offset-2 hover:text-foreground">
+        <Link
+          href="/callings/proposed"
+          className="rounded-lg px-3 py-1.5 text-foreground/65 transition-colors hover:bg-background/70 hover:text-foreground"
+        >
           Proposed callings
         </Link>
-      </div>
+        <Link
+          href="/callings/import"
+          className="rounded-lg px-3 py-1.5 text-foreground/65 transition-colors hover:bg-background/70 hover:text-foreground"
+        >
+          Import PDF
+        </Link>
+      </nav>
       <CallingsClient
         wards={wards}
         defaultWardId={defaultWardId}

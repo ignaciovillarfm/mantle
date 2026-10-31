@@ -145,3 +145,101 @@
     color: var(--text-primary);
   }
 }
+
+/* Sacrament edit paper: ink-on-white sheet (aligned with print preview). */
+[data-sacrament-paper] {
+  --bg-page: #ffffff;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --input-bg: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #f0f0f0;
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --text-primary: #0a0a0a;
+  --text-secondary: #404040;
+  --text-muted: #666666;
+  --muted: #f0f0f0;
+  --muted-foreground: #666666;
+  --secondary: #f0f0f0;
+  --secondary-foreground: #0a0a0a;
+  --accent: #f0f0f0;
+  --accent-foreground: #0a0a0a;
+  --border: #d4d4d4;
+  --input: #404040;
+  --placeholder: #a3a3a3;
+  --ring: #171717;
+  --accent-primary: #171717;
+  --accent-hover: #0a0a0a;
+  --primary: #171717;
+  --primary-foreground: #ffffff;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  background-color: #fff;
+  color: #0a0a0a;
+  font-family: "Times New Roman", Times, "Liberation Serif", Georgia, serif;
+}
+[data-sacrament-paper] :where(h1, h2, h3, h4, [data-slot="card-title"]) {
+  color: #0a0a0a;
+  font-family: inherit;
+}
+/* Square field edges on the sheet — match print section boxes */
+[data-sacrament-paper] :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="file"]),
+  textarea,
+  select,
+  [data-slot="popover-trigger"],
+  [data-slot="select-trigger"]
+) {
+  border-radius: 0;
+  border-color: rgb(38 38 38 / 0.7);
+  background-color: #fff;
+  box-shadow: none;
+  color: #0a0a0a;
+}
+[data-sacrament-paper] :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="file"]),
+  textarea,
+  select,
+  [data-slot="popover-trigger"],
+  [data-slot="select-trigger"]
+):hover {
+  border-color: #0a0a0a;
+}
+[data-sacrament-paper] :is(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="file"]),
+  textarea,
+  select,
+  [data-slot="popover-trigger"],
+  [data-slot="select-trigger"]
+):focus-visible,
+[data-sacrament-paper] :is(
+  [data-slot="popover-trigger"],
+  [data-slot="select-trigger"]
+)[data-popup-open] {
+  border-color: #0a0a0a;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.08);
+}
+/* Outline / ghost actions on the sheet — square to match fields */
+[data-sacrament-paper] :is(a, button)[data-slot="button"] {
+  border-radius: 0;
+}
+[data-sacrament-paper] [data-slot="select-item"] {
+  border-radius: 0;
+}
+[data-sacrament-paper] [data-slot="command-item"] {
+  border-radius: 0;
+}
+
+/* Hide OS <select> chevron; arrow is drawn as a sibling icon in the editor. */
+select.sacrament-native-select {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  background-image: none !important;
+  padding-right: 2.5rem;
+}
+select.sacrament-native-select::-ms-expand {
+  display: none;
+}

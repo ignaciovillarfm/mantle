@@ -27,8 +27,10 @@ import {
   formatSundayMonthHeading,
   sundayWindow,
 } from "@/lib/sunday/sundayAssignments";
+import { useWardCachedState } from "@/hooks/useWardCachedState";
+import { wardPageKeys } from "@/lib/wardPageCache";
 import { cn } from "@/lib/utils";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type FormState = {
@@ -77,7 +79,10 @@ export function SacramentBreadClient({
   members: { id: string; name: string }[];
   initialRideContact: SacramentBreadRideContact | null;
 }) {
-  const [assignments, setAssignments] = useState(initialAssignments);
+  const [assignments, setAssignments] = useWardCachedState(
+    wardPageKeys.sacramentBread(wardId),
+    initialAssignments,
+  );
   const [editingSunday, setEditingSunday] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(() => emptyForm());
   const [busy, setBusy] = useState(false);
@@ -88,13 +93,18 @@ export function SacramentBreadClient({
     name: initialRideContact?.name ?? "",
     phone: initialRideContact?.phone ?? "",
   }));
+  const [memberList, setMemberList] = useState(members);
 
   const todayIso = formatLocalISODate(new Date());
   const sundays = useMemo(() => sundayWindow(new Date()), []);
 
+  useEffect(() => {
+    setMemberList(members);
+  }, [members]);
+
   const memberNameById = useMemo(
-    () => new Map(members.map((m) => [m.id, m.name])),
-    [members],
+    () => new Map(memberList.map((m) => [m.id, m.name])),
+    [memberList],
   );
 
   const byDate = useMemo(
@@ -356,10 +366,19 @@ export function SacramentBreadClient({
                 <MemberSearchSelect
                   id="bread-member"
                   lang="en"
-                  members={members}
+                  members={memberList}
                   value={form.memberId}
                   onChange={(id) => setForm((f) => ({ ...f, memberId: id }))}
                   emptyLabel="Search member…"
+                  addMember={{
+                    wardId,
+                    onCreated: (member) => {
+                      setMemberList((prev) => {
+                        if (prev.some((m) => m.id === member.id)) return prev;
+                        return [...prev, member].sort((a, b) => a.name.localeCompare(b.name));
+                      });
+                    },
+                  }}
                 />
               </div>
             </div>

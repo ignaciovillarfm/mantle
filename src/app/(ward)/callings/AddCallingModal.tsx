@@ -3,10 +3,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { groupCallingOptions } from "@/lib/callings/groupCallingOptions";
+import { getNextCallingStatus } from "@/lib/callingStatus";
 import { CreateCallingPositionFields } from "@/app/(ward)/sacrament/CreateCallingPositionFields";
 
 export type CallingPresetOption = { id: string; ward_id: string; title: string; sort_order: number };
 export type CallingMemberOption = { id: string; ward_id: string; name: string };
+
+export type CreatedCallingRow = {
+  id: string;
+  ward_id: string;
+  wardName: string;
+  name: string;
+  status: string;
+  member_id: string;
+  members: { name: string } | null;
+  nextStatus: string | null;
+};
 
 export function AddCallingModal({
   wards,
@@ -16,6 +28,7 @@ export function AddCallingModal({
   initialStatus = "Set Apart",
   buttonLabel = "Add calling",
   modalTitle = "Assign calling",
+  onCreated,
 }: {
   wards: { id: string; name: string }[];
   positions: CallingPresetOption[];
@@ -24,6 +37,8 @@ export function AddCallingModal({
   initialStatus?: "Set Apart" | "Proposed";
   buttonLabel?: string;
   modalTitle?: string;
+  /** Immediate cache update — prefer this over waiting on router.refresh. */
+  onCreated?: (row: CreatedCallingRow) => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -103,18 +118,45 @@ export function AddCallingModal({
             status: initialStatus,
           }),
         });
-        const json = (await res.json()) as { ok?: boolean; error?: string };
+        const json = (await res.json()) as { ok?: boolean; id?: string; error?: string };
         if (!res.ok || !json.ok) {
           setErr(typeof json.error === "string" ? json.error : `Save failed (${res.status})`);
           return;
         }
+        const member = members.find((m) => m.id === memberId);
+        const position = positions.find((p) => p.id === positionId);
+        const wardName = wards.find((w) => w.id === wardId)?.name ?? "—";
+        if (onCreated && json.id && member && position) {
+          onCreated({
+            id: json.id,
+            ward_id: wardId,
+            wardName,
+            name: position.title,
+            status: initialStatus,
+            member_id: memberId,
+            members: { name: member.name },
+            nextStatus: getNextCallingStatus(initialStatus),
+          });
+        } else {
+          router.refresh();
+        }
         close();
-        router.refresh();
       } finally {
         setBusy(false);
       }
     },
-    [wardId, memberId, positionId, initialStatus, close, router],
+    [
+      wardId,
+      memberId,
+      positionId,
+      initialStatus,
+      close,
+      router,
+      onCreated,
+      members,
+      positions,
+      wards,
+    ],
   );
 
   return (

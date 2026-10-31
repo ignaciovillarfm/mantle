@@ -12,9 +12,9 @@ import {
 import { useCallback, useEffect, useRef } from "react";
 
 const SELECT_CLASS =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-background py-0 pl-3 pr-10 text-sm leading-10 text-foreground";
+  "sacrament-native-select h-10 w-full rounded-none border border-neutral-800/70 bg-white py-0 pl-3 pr-10 text-sm leading-10 text-neutral-950";
 const TEXTAREA_CLASS =
-  "mt-1 min-h-[88px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none";
+  "mt-1 min-h-[88px] w-full rounded-none border border-neutral-800/70 bg-white px-3 py-2 text-sm text-neutral-950 outline-none";
 
 function t(lang: SacramentFormLang, en: string, es: string) {
   return lang === "es" ? es : en;
@@ -84,36 +84,50 @@ export function TestimonyMessageEditor({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <select
-          className={`${SELECT_CLASS} min-w-[min(100%,20rem)] flex-1`}
-          value={isCustom ? TESTIMONY_MESSAGE_CUSTOM_ID : messageId}
-          onChange={(e) => {
-            const next = e.target.value;
-            if (next === TESTIMONY_MESSAGE_CUSTOM_ID) {
-              onChange(TESTIMONY_MESSAGE_CUSTOM_ID, messageCustom);
-            } else {
-              onChange(next, "");
-            }
-          }}
-        >
-          <option value="">
-            {t(lang, "Select a message…", "Seleccione un mensaje…")}
-          </option>
-          {TESTIMONY_MESSAGES.map((m) => (
-            <option key={m.id} value={m.id} disabled={recentlyUsed.has(m.id) && m.id !== messageId}>
-              {presetOptionLabel(lang, m.id)}
-              {recentlyUsed.has(m.id) && m.id !== messageId
-                ? t(lang, " (recent)", " (reciente)")
-                : ""}
+        <div className="relative mt-1 min-w-[min(100%,20rem)] flex-1">
+          <select
+            className={SELECT_CLASS}
+            value={isCustom ? TESTIMONY_MESSAGE_CUSTOM_ID : messageId}
+            onChange={(e) => {
+              const next = e.target.value;
+              if (next === TESTIMONY_MESSAGE_CUSTOM_ID) {
+                onChange(TESTIMONY_MESSAGE_CUSTOM_ID, messageCustom);
+              } else {
+                onChange(next, "");
+              }
+            }}
+          >
+            <option value="">
+              {t(lang, "Select a message…", "Seleccione un mensaje…")}
             </option>
-          ))}
-          <option value={TESTIMONY_MESSAGE_CUSTOM_ID}>
-            {t(lang, "Custom text…", "Texto personalizado…")}
-          </option>
-        </select>
+            {TESTIMONY_MESSAGES.map((m) => (
+              <option key={m.id} value={m.id} disabled={recentlyUsed.has(m.id) && m.id !== messageId}>
+                {presetOptionLabel(lang, m.id)}
+                {recentlyUsed.has(m.id) && m.id !== messageId
+                  ? t(lang, " (recent)", " (reciente)")
+                  : ""}
+              </option>
+            ))}
+            <option value={TESTIMONY_MESSAGE_CUSTOM_ID}>
+              {t(lang, "Custom text…", "Texto personalizado…")}
+            </option>
+          </select>
+          <svg
+            className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-neutral-600"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
         <button
           type="button"
-          className="h-10 shrink-0 rounded-lg border border-border px-3 text-sm hover:bg-surface-hover"
+          className="mt-1 h-10 shrink-0 rounded-lg border border-border px-3 text-sm hover:bg-surface-hover"
           onClick={handleSuggest}
         >
           {t(lang, "Suggest unused", "Sugerir sin repetir")}

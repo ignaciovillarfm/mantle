@@ -1,6 +1,9 @@
 "use client";
 
-import { MemberSearchSelect } from "@/components/MemberSearchSelect";
+import {
+  MemberSearchSelect,
+  type MemberSearchAddMember,
+} from "@/components/MemberSearchSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,11 +17,16 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { hoverRevealRemoveClassName } from "@/lib/hoverRevealRemove";
 import {
+  sacramentPaperOverlayAttrs,
+  sacramentPaperOverlayClass,
+} from "@/app/(ward)/sacrament/SacramentSection";
+import {
   isGuestSpeakerSlot,
   type SacramentFormLang,
   type SpeakerSlot,
   type TalkResponseStatus,
 } from "@/lib/sacramentProgram";
+import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
 function t(lang: SacramentFormLang, en: string, es: string) {
@@ -67,6 +75,9 @@ export function SpeakerSlotCard({
   canRemove,
   onRemove,
   onChange,
+  addMember,
+  controlClassName,
+  paper,
 }: {
   slot: SpeakerSlot;
   lang: SacramentFormLang;
@@ -75,6 +86,9 @@ export function SpeakerSlotCard({
   canRemove: boolean;
   onRemove: () => void;
   onChange: (next: SpeakerSlot) => void;
+  addMember?: MemberSearchAddMember;
+  controlClassName?: string;
+  paper?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const guestMode = isGuestSpeakerSlot(slot);
@@ -171,7 +185,7 @@ export function SpeakerSlotCard({
                 <>
                   <FieldLabel lang={lang} en="Speaker" es="Orador" />
                   <Input
-                    className="mt-1"
+                    className={cn("mt-1", controlClassName)}
                     placeholder={t(lang, "e.g. Elder Smith — High Council", "p. ej. Élder López — Alto consejo")}
                     value={slot.guest_name ?? ""}
                     onChange={(e) => patch({ guest_name: e.target.value, member_id: null })}
@@ -182,7 +196,6 @@ export function SpeakerSlotCard({
                   id={`sp-${slot.position}`}
                   lang={lang}
                   members={members}
-                  className="mt-0"
                   value={slot.member_id ?? null}
                   onChange={(memberId) => {
                     const prevMember = slot.member_id;
@@ -199,11 +212,15 @@ export function SpeakerSlotCard({
                         : {}),
                     });
                   }}
+                  addMember={addMember}
+                  className={cn("mt-0", controlClassName)}
+                  paper={paper}
                 />
               )}
             </div>
             <div className="min-w-0 flex-1">
               <Input
+                className={controlClassName}
                 placeholder={t(lang, "Topic (optional)", "Tema (opcional)")}
                 value={slot.topic ?? ""}
                 onChange={(e) => patch({ topic: e.target.value || null })}
@@ -243,14 +260,25 @@ export function SpeakerSlotCard({
                   <FieldLabel lang={lang} en="Response" es="Respuesta" />
                   <Select
                     value={slot.response_status ?? "pending"}
+                    items={{
+                      pending: t(lang, "Pending", "Pendiente"),
+                      accepted: t(lang, "Accepted", "Aceptó"),
+                      declined: t(lang, "Declined", "Declinó"),
+                    }}
                     onValueChange={(v) => {
                       if (v) patch({ response_status: v as TalkResponseStatus });
                     }}
                   >
-                    <SelectTrigger id={`sp-res-${slot.position}`} className="mt-1 w-full">
+                    <SelectTrigger
+                      id={`sp-res-${slot.position}`}
+                      className={cn("mt-1 w-full", controlClassName)}
+                    >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent
+                      {...(paper ? sacramentPaperOverlayAttrs : {})}
+                      className={cn(paper && sacramentPaperOverlayClass)}
+                    >
                       <SelectItem value="pending">{t(lang, "Pending", "Pendiente")}</SelectItem>
                       <SelectItem value="accepted">{t(lang, "Accepted", "Aceptó")}</SelectItem>
                       <SelectItem value="declined">{t(lang, "Declined", "Declinó")}</SelectItem>
@@ -260,7 +288,7 @@ export function SpeakerSlotCard({
                 <div>
                   <FieldLabel lang={lang} en="Note (if declined)" es="Nota (si declinó)" />
                   <Input
-                    className="mt-1"
+                    className={cn("mt-1", controlClassName)}
                     value={slot.response_note ?? ""}
                     onChange={(e) => patch({ response_note: e.target.value || null })}
                   />

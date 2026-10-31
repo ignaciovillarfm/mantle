@@ -15,6 +15,10 @@ import {
   CALLING_GROUP_LABEL,
   type CallingGroupKey,
 } from "@/lib/callings/groupCallingOptions";
+import {
+  sacramentPaperOverlayAttrs,
+  sacramentPaperOverlayClass,
+} from "./SacramentSection";
 import { PlusIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 
@@ -94,7 +98,10 @@ export function CreateCallingPositionFields({
             <SelectTrigger id="create-calling-group" className="w-full">
               <SelectValue placeholder={t(lang, "Group…", "Grupo…")} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent
+              {...sacramentPaperOverlayAttrs}
+              className={sacramentPaperOverlayClass}
+            >
               {CALLING_GROUP_ORDER.map((key) => (
                 <SelectItem key={key} value={key}>
                   {CALLING_GROUP_LABEL[key]}
