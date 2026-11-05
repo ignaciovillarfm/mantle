@@ -31,3 +31,9 @@ export async function writeSacramentPageCache(
     updatedAt: Date.now(),
   });
 }
+
+/** Drop every cached sacrament page (and any other ward cache rows). */
+export async function clearWardBrowserCache(): Promise<void> {
+  if (!wardDb) return;
+  await wardDb.cache.clear();
+}

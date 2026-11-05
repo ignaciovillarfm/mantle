@@ -14,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { hoverRevealRemoveClassName } from "@/lib/hoverRevealRemove";
 import {
   sacramentPaperOverlayAttrs,
@@ -34,7 +33,7 @@ function t(lang: SacramentFormLang, en: string, es: string) {
 }
 
 function FieldLabel({ lang, en, es }: { lang: SacramentFormLang; en: string; es: string }) {
-  return <Label className="mb-1 block font-medium text-foreground">{t(lang, en, es)}</Label>;
+  return <Label className="mb-1.5 block text-sm font-medium text-foreground">{t(lang, en, es)}</Label>;
 }
 
 function PencilIcon() {
@@ -67,6 +66,12 @@ function speakerLabel(slot: SpeakerSlot, memberName: string | null, lang: Sacram
   return t(lang, "Unassigned", "Sin asignar");
 }
 
+function spokeValue(fulfilled: boolean | null): "unknown" | "yes" | "no" {
+  if (fulfilled === true) return "yes";
+  if (fulfilled === false) return "no";
+  return "unknown";
+}
+
 export function SpeakerSlotCard({
   slot,
   lang,
@@ -95,6 +100,10 @@ export function SpeakerSlotCard({
   const recorded = deliveryRecorded(slot);
   const showCompact = recorded && !expanded;
   const hasSpeaker = Boolean(slot.member_id || slot.guest_name?.trim());
+  const didNotSpeak = slot.fulfilled === false;
+  const showDetails = didNotSpeak || (slot.response_status ?? "pending") === "declined";
+  const assignedName = speakerLabel(slot, memberName, lang);
+  const showGuestLink = !guestMode && !slot.member_id;
 
   useEffect(() => {
     if (recorded) setExpanded(false);
@@ -125,9 +134,21 @@ export function SpeakerSlotCard({
   const slotLabelEs = `Discurso ${slot.position}`;
 
   return (
-    <div className="group">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="font-medium text-foreground">{t(lang, slotLabelEn, slotLabelEs)}</span>
+    <div
+      className={cn(
+        "group",
+        paper
+          ? "border border-neutral-300 bg-neutral-50/50 px-4 py-4 sm:px-5 sm:py-5"
+          : "rounded-xl border border-border bg-muted/20 px-4 py-4 sm:px-5 sm:py-5",
+      )}
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="min-w-0 font-medium text-foreground">
+          {t(lang, slotLabelEn, slotLabelEs)}
+          {hasSpeaker && !showCompact ? (
+            <span className="font-normal text-foreground/50"> · {assignedName}</span>
+          ) : null}
+        </p>
         {canRemove && !showCompact ? (
           <Button
             type="button"
@@ -151,7 +172,7 @@ export function SpeakerSlotCard({
         >
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-              {speakerLabel(slot, memberName, lang)}
+              {assignedName}
             </p>
             <div className="flex shrink-0 items-center gap-2">
               <button
@@ -171,26 +192,28 @@ export function SpeakerSlotCard({
                 }`}
               >
                 {slot.fulfilled
-                  ? t(lang, "Spoke", "Discursó")
-                  : t(lang, "Did not speak", "No discursó")}
+                  ? t(lang, "Spoke", "Habló")
+                  : t(lang, "Did not speak", "No habló")}
               </span>
             </div>
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="min-w-0 flex-1">
+        <div className="space-y-4">
+          <div className="grid gap-x-3 gap-y-4 sm:grid-cols-2">
+            <div className="min-w-0">
+              <FieldLabel lang={lang} en="Speaker" es="Orador" />
               {guestMode ? (
-                <>
-                  <FieldLabel lang={lang} en="Speaker" es="Orador" />
-                  <Input
-                    className={cn("mt-1", controlClassName)}
-                    placeholder={t(lang, "e.g. Elder Smith — High Council", "p. ej. Élder López — Alto consejo")}
-                    value={slot.guest_name ?? ""}
-                    onChange={(e) => patch({ guest_name: e.target.value, member_id: null })}
-                  />
-                </>
+                <Input
+                  className={cn("h-10", controlClassName)}
+                  placeholder={t(
+                    lang,
+                    "e.g. Elder Smith — High Council",
+                    "p. ej. Élder López — Alto consejo",
+                  )}
+                  value={slot.guest_name ?? ""}
+                  onChange={(e) => patch({ guest_name: e.target.value, member_id: null })}
+                />
               ) : (
                 <MemberSearchSelect
                   id={`sp-${slot.position}`}
@@ -217,113 +240,127 @@ export function SpeakerSlotCard({
                   paper={paper}
                 />
               )}
+              {guestMode ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="mt-1.5 h-auto px-0 text-xs text-foreground/60"
+                  onClick={setWardMode}
+                >
+                  {t(lang, "Back to ward member", "Volver a miembro del barrio")}
+                </Button>
+              ) : showGuestLink ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="mt-1.5 h-auto px-0 text-xs text-foreground/60"
+                  onClick={setGuestMode}
+                >
+                  {t(lang, "Guest or stake speaker instead", "Invitado o de la estaca")}
+                </Button>
+              ) : null}
             </div>
-            <div className="min-w-0 flex-1">
+
+            <div className="min-w-0">
+              <FieldLabel lang={lang} en="Topic (optional)" es="Tema (opcional)" />
               <Input
-                className={controlClassName}
-                placeholder={t(lang, "Topic (optional)", "Tema (opcional)")}
+                className={cn("h-10", controlClassName)}
                 value={slot.topic ?? ""}
                 onChange={(e) => patch({ topic: e.target.value || null })}
               />
             </div>
-          </div>
 
-          {guestMode ? (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto px-0 text-xs"
-              onClick={setWardMode}
-            >
-              {t(lang, "Back to ward member", "Volver a miembro del barrio")}
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto px-0 text-xs"
-              onClick={setGuestMode}
-            >
-              {t(lang, "Guest or stake speaker instead", "Invitado o de la estaca")}
-            </Button>
-          )}
-
-          {slot.member_id ? (
-            <div className="border-t border-border pt-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">
-                {t(lang, "Assignment (Members tab)", "Asignación (Miembros)")}
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <FieldLabel lang={lang} en="Response" es="Respuesta" />
-                  <Select
-                    value={slot.response_status ?? "pending"}
-                    items={{
-                      pending: t(lang, "Pending", "Pendiente"),
-                      accepted: t(lang, "Accepted", "Aceptó"),
-                      declined: t(lang, "Declined", "Declinó"),
-                    }}
-                    onValueChange={(v) => {
-                      if (v) patch({ response_status: v as TalkResponseStatus });
-                    }}
+            {hasSpeaker && slot.member_id ? (
+              <div className="min-w-0">
+                <FieldLabel lang={lang} en="Response" es="Respuesta" />
+                <Select
+                  value={slot.response_status ?? "pending"}
+                  items={{
+                    pending: t(lang, "Pending", "Pendiente"),
+                    accepted: t(lang, "Accepted", "Aceptó"),
+                    declined: t(lang, "Declined", "Declinó"),
+                  }}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    const next = v as TalkResponseStatus;
+                    patch({
+                      response_status: next,
+                      ...(next !== "declined" && !didNotSpeak ? { response_note: null } : {}),
+                    });
+                  }}
+                >
+                  <SelectTrigger
+                    id={`sp-res-${slot.position}`}
+                    className={cn("h-10 w-full", controlClassName)}
                   >
-                    <SelectTrigger
-                      id={`sp-res-${slot.position}`}
-                      className={cn("mt-1 w-full", controlClassName)}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent
-                      {...(paper ? sacramentPaperOverlayAttrs : {})}
-                      className={cn(paper && sacramentPaperOverlayClass)}
-                    >
-                      <SelectItem value="pending">{t(lang, "Pending", "Pendiente")}</SelectItem>
-                      <SelectItem value="accepted">{t(lang, "Accepted", "Aceptó")}</SelectItem>
-                      <SelectItem value="declined">{t(lang, "Declined", "Declinó")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <FieldLabel lang={lang} en="Note (if declined)" es="Nota (si declinó)" />
-                  <Input
-                    className={cn("mt-1", controlClassName)}
-                    value={slot.response_note ?? ""}
-                    onChange={(e) => patch({ response_note: e.target.value || null })}
-                  />
-                </div>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent
+                    {...(paper ? sacramentPaperOverlayAttrs : {})}
+                    className={cn(paper && sacramentPaperOverlayClass)}
+                  >
+                    <SelectItem value="pending">{t(lang, "Pending", "Pendiente")}</SelectItem>
+                    <SelectItem value="accepted">{t(lang, "Accepted", "Aceptó")}</SelectItem>
+                    <SelectItem value="declined">{t(lang, "Declined", "Declinó")}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {hasSpeaker ? (
-            <div className={slot.member_id ? "mt-0" : "border-t border-border pt-3"}>
-              <FieldLabel lang={lang} en="Spoke that Sunday?" es="¿Discursó ese domingo?" />
-              <ToggleGroup
-                variant="outline"
-                className="mt-1 flex flex-wrap justify-start gap-1"
-                value={[slot.fulfilled === null ? "unknown" : slot.fulfilled ? "yes" : "no"]}
-                onValueChange={(v) => {
-                  const next = v[0];
-                  if (!next) return;
-                  patch({
-                    fulfilled: next === "unknown" ? null : next === "yes",
-                  });
-                }}
-              >
-                <ToggleGroupItem value="unknown" className="text-sm">
-                  {t(lang, "Unknown", "Desconocido")}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="yes" className="text-sm">
-                  {t(lang, "Yes", "Sí")}
-                </ToggleGroupItem>
-                <ToggleGroupItem value="no" className="text-sm">
-                  {t(lang, "No", "No")}
-                </ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-          ) : null}
+            {hasSpeaker ? (
+              <div className="min-w-0">
+                <FieldLabel lang={lang} en="Spoke?" es="¿Habló?" />
+                <Select
+                  value={spokeValue(slot.fulfilled ?? null)}
+                  items={{
+                    unknown: t(lang, "Not yet", "Todavía no"),
+                    yes: t(lang, "Yes", "Sí"),
+                    no: t(lang, "No", "No"),
+                  }}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    const fulfilled = v === "unknown" ? null : v === "yes";
+                    patch({
+                      fulfilled,
+                      ...(fulfilled !== false &&
+                      (slot.response_status ?? "pending") !== "declined"
+                        ? { response_note: null }
+                        : {}),
+                    });
+                  }}
+                >
+                  <SelectTrigger
+                    id={`sp-spoke-${slot.position}`}
+                    className={cn("h-10 w-full", controlClassName)}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent
+                    {...(paper ? sacramentPaperOverlayAttrs : {})}
+                    className={cn(paper && sacramentPaperOverlayClass)}
+                  >
+                    <SelectItem value="unknown">{t(lang, "Not yet", "Todavía no")}</SelectItem>
+                    <SelectItem value="yes">{t(lang, "Yes", "Sí")}</SelectItem>
+                    <SelectItem value="no">{t(lang, "No", "No")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            {hasSpeaker && showDetails ? (
+              <div className="min-w-0 sm:col-span-2">
+                <FieldLabel lang={lang} en="Additional details" es="Detalles adicionales" />
+                <Input
+                  className={cn("h-10", controlClassName)}
+                  placeholder={t(lang, "Optional note…", "Nota opcional…")}
+                  value={slot.response_note ?? ""}
+                  onChange={(e) => patch({ response_note: e.target.value || null })}
+                />
+              </div>
+            ) : null}
+          </div>
 
           {recorded ? (
             <Button
