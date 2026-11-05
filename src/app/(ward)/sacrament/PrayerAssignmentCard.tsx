@@ -14,7 +14,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   sacramentPaperOverlayAttrs,
   sacramentPaperOverlayClass,
@@ -54,6 +53,12 @@ function prayerRecorded(fulfilled: boolean | null) {
   return fulfilled === true || fulfilled === false;
 }
 
+function prayedValue(fulfilled: boolean | null): "unknown" | "yes" | "no" {
+  if (fulfilled === true) return "yes";
+  if (fulfilled === false) return "no";
+  return "unknown";
+}
+
 export function PrayerAssignmentCard({
   variant,
   lang,
@@ -91,6 +96,8 @@ export function PrayerAssignmentCard({
   const recorded = prayerRecorded(fulfilled);
   const showCompact = recorded && !expanded;
   const hasMember = Boolean(memberId);
+  const didNotPray = fulfilled === false;
+  const showDetails = didNotPray || responseStatus === "declined";
   const selectId = variant === "opening" ? "openPray" : "closePray";
   const labelEn = variant === "opening" ? "Opening prayer" : "Closing prayer";
   const labelEs = variant === "opening" ? "Primera oración" : "Última oración";
@@ -159,12 +166,9 @@ export function PrayerAssignmentCard({
           />
 
           {hasMember ? (
-            <div className="border-t border-border pt-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-foreground/50">
-                {t(lang, "Assignment (Members tab)", "Asignación (Miembros)")}
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
+            <div className="space-y-3 border-t border-border pt-3">
+              <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+                <div className="min-w-0">
                   <FieldLabel lang={lang} en="Response" es="Respuesta" />
                   <Select
                     value={responseStatus}
@@ -174,10 +178,16 @@ export function PrayerAssignmentCard({
                       declined: t(lang, "Declined", "Declinó"),
                     }}
                     onValueChange={(v) => {
-                      if (v) onResponseChange(v as TalkResponseStatus);
+                      if (!v) return;
+                      const next = v as TalkResponseStatus;
+                      onResponseChange(next);
+                      if (next !== "declined" && !didNotPray) onNoteChange(null);
                     }}
                   >
-                    <SelectTrigger id={`${selectId}-res`} className={cn("mt-1 w-full", controlClassName)}>
+                    <SelectTrigger
+                      id={`${selectId}-res`}
+                      className={cn("h-10 w-full", controlClassName)}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent
@@ -190,38 +200,58 @@ export function PrayerAssignmentCard({
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <FieldLabel lang={lang} en="Note (if declined)" es="Nota (si declinó)" />
+
+                <div className="min-w-0">
+                  <FieldLabel lang={lang} en="Prayed?" es="¿Oró?" />
+                  <Select
+                    value={prayedValue(fulfilled)}
+                    items={{
+                      unknown: t(lang, "Not yet", "Todavía no"),
+                      yes: t(lang, "Yes", "Sí"),
+                      no: t(lang, "No", "No"),
+                    }}
+                    onValueChange={(v) => {
+                      if (!v) return;
+                      const next = v === "unknown" ? null : v === "yes";
+                      onFulfilledChange(next);
+                      if (next !== false && responseStatus !== "declined") {
+                        onNoteChange(null);
+                      }
+                    }}
+                  >
+                    <SelectTrigger
+                      id={`${selectId}-prayed`}
+                      className={cn("h-10 w-full", controlClassName)}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      {...(paper ? sacramentPaperOverlayAttrs : {})}
+                      className={cn(paper && sacramentPaperOverlayClass)}
+                    >
+                      <SelectItem value="unknown">{t(lang, "Not yet", "Todavía no")}</SelectItem>
+                      <SelectItem value="yes">{t(lang, "Yes", "Sí")}</SelectItem>
+                      <SelectItem value="no">{t(lang, "No", "No")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {showDetails ? (
+                <div className="min-w-0">
+                  <FieldLabel
+                    lang={lang}
+                    en="Additional details"
+                    es="Detalles adicionales"
+                  />
                   <Input
-                    className={cn("mt-1", controlClassName)}
+                    className={cn("h-10", controlClassName)}
+                    placeholder={t(lang, "Optional note…", "Nota opcional…")}
                     value={responseNote ?? ""}
                     onChange={(e) => onNoteChange(e.target.value || null)}
                   />
                 </div>
-              </div>
-              <div className="mt-3">
-                <FieldLabel lang={lang} en="Prayed that Sunday?" es="¿Oró ese domingo?" />
-                <ToggleGroup
-                  variant="outline"
-                  className="mt-1 flex flex-wrap justify-start gap-1"
-                  value={[fulfilled === null ? "unknown" : fulfilled ? "yes" : "no"]}
-                  onValueChange={(v) => {
-                    const next = v[0];
-                    if (!next) return;
-                    onFulfilledChange(next === "unknown" ? null : next === "yes");
-                  }}
-                >
-                  <ToggleGroupItem value="unknown" className="text-sm">
-                    {t(lang, "Unknown", "Desconocido")}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="yes" className="text-sm">
-                    {t(lang, "Yes", "Sí")}
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="no" className="text-sm">
-                    {t(lang, "No", "No")}
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              </div>
+              ) : null}
             </div>
           ) : null}
 

@@ -5,12 +5,15 @@ import { PrayerAssignmentCard } from "./PrayerAssignmentCard";
 import { SpeakerSlotCard } from "./SpeakerSlotCard";
 import { SpeakerSuggestionsModal } from "./SpeakerSuggestionsModal";
 import { TestimonyMessageEditor } from "./TestimonyMessageEditor";
+import { PrintButton } from "./print/PrintButton";
+import { SacramentPrintDocument } from "./print/SacramentPrintDocument";
 import type { CallingPositionOption, SacramentPageBundle } from "./loadSacramentState";
 import { combineWardBusinessEntries } from "@/lib/sacrament/combineWardBusinessEntries";
 import {
   DEFAULT_SACRAMENT_PROGRAM,
   defaultTemplateKeyForWardKind,
   formatLocalISODate,
+  formatSacramentMeetingDateLong,
   MAX_DISCOURSE_SLOTS,
   MAX_WARD_BUSINESS_SECTIONS,
   MIN_DISCOURSE_SLOTS,
@@ -26,6 +29,7 @@ import {
   sacramentMeetingKindNotice,
   sacramentMeetingKindSectionTitle,
   sacramentMeetingProgramKind,
+  sacramentPrintDocumentTitle,
   sacramentSundayLongLabel,
   shiftCalendarWeek,
   startOfWeekSundayFromISO,
@@ -80,7 +84,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { hoverRevealRemoveClassName, removeIconMarkClassName } from "@/lib/hoverRevealRemove";
 import { Settings } from "lucide-react";
@@ -98,7 +101,7 @@ import { SacramentFormSkeleton } from "./SacramentSkeleton";
 import { sundayStripCellClassName } from "@/lib/formControlStyles";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 const SACRAMENT_LANG_STORAGE_KEY = "mantle-sacrament-form-lang";
 const AUTO_SAVE_DEBOUNCE_MS = 600;
@@ -596,6 +599,8 @@ export function SacramentClient({
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [formLang, setFormLangState] = useState<SacramentFormLang>("es");
+  const [showPreview, setShowPreview] = useState(false);
+  const pendingPrintRef = useRef(false);
   const [wardAddModalOpen, setWardAddModalOpen] = useState(false);
   const [wardEditSectionId, setWardEditSectionId] = useState<string | null>(null);
   const [wardAddKind, setWardAddKind] = useState<WardBusinessSectionKind | null>(null);
@@ -747,15 +752,27 @@ export function SacramentClient({
     }
   }, [queryClient, effectiveWardId, prevWeekFromUrl, nextWeekFromUrl]);
 
-  /** Hydrate RQ from IndexedDB when memory cache is cold (page remount / hard refresh). */
+  /** Paint from IndexedDB when cold, then always revalidate from the network. */
   useLayoutEffect(() => {
-    if (queryClient.getQueryData(pageQueryKey)) return;
     let cancelled = false;
     void (async () => {
-      const fromIdb = await readSacramentPageCache(effectiveWardId, effectiveMeetingDate);
-      if (cancelled || !fromIdb) return;
-      if (queryClient.getQueryData(pageQueryKey)) return;
-      queryClient.setQueryData(pageQueryKey, fromIdb);
+      if (!queryClient.getQueryData(pageQueryKey)) {
+        const fromIdb = await readSacramentPageCache(effectiveWardId, effectiveMeetingDate);
+        if (cancelled) return;
+        if (fromIdb && !queryClient.getQueryData(pageQueryKey)) {
+          queryClient.setQueryData(pageQueryKey, fromIdb);
+        }
+      }
+      if (cancelled) return;
+      try {
+        await queryClient.fetchQuery({
+          queryKey: pageQueryKey,
+          queryFn: (ctx) => loadSacramentPageQuery(queryClient, ctx),
+          staleTime: 0,
+        });
+      } catch {
+        /* keep painted cache if offline / error */
+      }
     })();
     return () => {
       cancelled = true;
@@ -1676,6 +1693,22 @@ export function SacramentClient({
     () => new Map(allMembers.map((m) => [m.id, m.name])),
     [allMembers],
   );
+  const printDocumentTitle = useMemo(
+    () =>
+      sacramentPrintDocumentTitle(
+        wardDisplayName,
+        formatSacramentMeetingDateLong(effectiveMeetingDate, formLang),
+      ),
+    [wardDisplayName, effectiveMeetingDate, formLang],
+  );
+
+  useEffect(() => {
+    if (!showPreview || !pendingPrintRef.current) return;
+    pendingPrintRef.current = false;
+    document.title = printDocumentTitle;
+    const id = window.setTimeout(() => window.print(), 120);
+    return () => window.clearTimeout(id);
+  }, [showPreview, printDocumentTitle]);
   const callingTitleById = useMemo(
     () =>
       new Map(
@@ -1786,7 +1819,7 @@ export function SacramentClient({
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
           {`Reunion sacramental - Barrio ${wardDisplayName}`}
         </h1>
-        <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <Select
             value={formLang}
             onValueChange={(v) => {
@@ -1795,7 +1828,7 @@ export function SacramentClient({
           >
             <SelectTrigger
               id="sacrament-form-lang"
-              className="w-[130px]"
+              className="h-9! w-[130px] rounded-lg! py-0"
               aria-label={formT(formLang, { en: "Form language", es: "Idioma del formulario" })}
             >
               <SelectValue>{formLang === "es" ? "Español" : "English"}</SelectValue>
@@ -1805,13 +1838,23 @@ export function SacramentClient({
               <SelectItem value="en">English</SelectItem>
             </SelectContent>
           </Select>
-          <Link
-            href={`/sacrament/print?ward=${encodeURIComponent(effectiveWardId)}&date=${encodeURIComponent(effectiveMeetingDate)}&lang=${formLang}`}
-            target="_blank"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            {formT(formLang, { en: "View preview", es: "Ver vista previa" })}
-          </Link>
+          <PrintButton
+            label={formT(formLang, {
+              en: "Print / Save PDF",
+              es: "Imprimir / Guardar PDF",
+            })}
+            documentTitle={printDocumentTitle}
+            className="h-9 rounded-lg"
+            onClick={() => {
+              if (showPreview) {
+                document.title = printDocumentTitle;
+                window.print();
+                return;
+              }
+              pendingPrintRef.current = true;
+              setShowPreview(true);
+            }}
+          />
           <div className="text-sm" aria-live="polite">
             {saving ? (
               <Badge variant="secondary">
@@ -1852,7 +1895,10 @@ export function SacramentClient({
       <div className="grid min-h-0 flex-1 grid-cols-1 items-stretch gap-4 overflow-hidden lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
         <nav
           aria-label={formT(formLang, { en: "Meeting agenda", es: "Agenda de la reunión" })}
-          className="h-fit w-full self-start overflow-hidden rounded-2xl border border-border bg-surface p-3 shadow-sm lg:p-4"
+          className={cn(
+            "h-fit w-full self-start overflow-hidden rounded-2xl border border-border bg-surface p-3 shadow-sm lg:p-4",
+            showPreview && "pointer-events-none opacity-45",
+          )}
         >
           <p className="mb-2 hidden px-2 text-[11px] font-medium tracking-wide text-foreground/45 uppercase lg:block">
             {formT(formLang, { en: "Agenda", es: "Agenda" })}
@@ -1953,8 +1999,45 @@ export function SacramentClient({
             ref={paperScrollRef}
             className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain"
           >
-          <SacramentPaper>
-          {showFormSkeleton ? (
+          <div className="shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_rgba(0,0,0,0.08)]">
+          <div className="no-print sticky top-0 z-20">
+            <div className="flex justify-end rounded-t-sm border border-b border-neutral-300 bg-white px-5 py-3 sm:px-8">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-lg border-neutral-300 bg-neutral-50 px-3.5 text-neutral-950 shadow-none hover:bg-neutral-100 hover:text-neutral-950"
+                onClick={() => setShowPreview((v) => !v)}
+              >
+                {showPreview
+                  ? formT(formLang, { en: "Back to edit", es: "Volver a editar" })
+                  : formT(formLang, { en: "View preview", es: "Ver vista previa" })}
+              </Button>
+            </div>
+          </div>
+          <SacramentPaper className="relative rounded-t-none border-t-0 pt-4 shadow-none sm:pt-5">
+          {showPreview ? (
+            <SacramentPrintDocument
+              embedded
+              lang={formLang}
+              wardName={wardDisplayName}
+              meetingDate={effectiveMeetingDate}
+              documentTitle={printDocumentTitle}
+              program={program}
+              meeting={{
+                presiding_member_id: presiding,
+                conducting_id: conducting,
+                chorister_member_id: chorister,
+                organist_member_id: organist,
+                opening_prayer_member_id: openingPrayer,
+                closing_prayer_member_id: closingPrayer,
+              }}
+              speakers={displaySpeakers}
+              memberNameById={memberNameById}
+              callingById={callingTitleById}
+              sectionTemplates={bundle?.sectionTemplates ?? {}}
+            />
+          ) : showFormSkeleton ? (
             <SacramentFormSkeleton />
           ) : (
           <>
@@ -2079,7 +2162,7 @@ export function SacramentClient({
             id="sec-announcements"
             title={formT(formLang, {
               en: "Announcements and opening hymn",
-              es: "Anuncios y himno inicial",
+              es: "Anuncios e himno inicial",
             })}
           >
             <div className="grid gap-4">
@@ -2497,31 +2580,29 @@ export function SacramentClient({
             }
           >
             {showDiscourseSlots ? (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {displaySpeakers.map((slot, idx) => (
-                <Fragment key={slot.position}>
-                  {idx > 0 ? <Separator className="my-5" /> : null}
-                  <SpeakerSlotCard
-                    slot={slot}
-                    lang={formLang}
-                    members={allMembers}
-                    memberName={
-                      slot.member_id ? (memberNameById.get(slot.member_id) ?? null) : null
-                    }
-                    canRemove={displaySpeakers.length > MIN_DISCOURSE_SLOTS}
-                    onRemove={() => removeSpeakerSlotAtIndex(idx)}
-                    onChange={(next) =>
-                      setSpeakers((prev) => {
-                        const slots = [...normalizeSpeakerSlots(prev)];
-                        slots[idx] = next;
-                        return slots;
-                      })
-                    }
-                    addMember={memberSearchAdd}
-                    controlClassName={sacramentFormControlClass}
-                    paper
-                  />
-                </Fragment>
+                <SpeakerSlotCard
+                  key={slot.position}
+                  slot={slot}
+                  lang={formLang}
+                  members={allMembers}
+                  memberName={
+                    slot.member_id ? (memberNameById.get(slot.member_id) ?? null) : null
+                  }
+                  canRemove={displaySpeakers.length > MIN_DISCOURSE_SLOTS}
+                  onRemove={() => removeSpeakerSlotAtIndex(idx)}
+                  onChange={(next) =>
+                    setSpeakers((prev) => {
+                      const slots = [...normalizeSpeakerSlots(prev)];
+                      slots[idx] = next;
+                      return slots;
+                    })
+                  }
+                  addMember={memberSearchAdd}
+                  controlClassName={sacramentFormControlClass}
+                  paper
+                />
               ))}
               {displaySpeakers.length < MAX_DISCOURSE_SLOTS ? (
                 <Button type="button" variant="outline" onClick={addSpeakerSlot}>
@@ -2588,6 +2669,7 @@ export function SacramentClient({
           </>
           )}
           </SacramentPaper>
+          </div>
           </div>
         </div>
       </div>

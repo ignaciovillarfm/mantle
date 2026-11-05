@@ -1,25 +1,21 @@
 import type { SacramentPageBundle } from "@/app/(ward)/sacrament/loadSacramentState";
 import type { QueryClient, QueryFunctionContext } from "@tanstack/react-query";
-import { readSacramentPageCache, writeSacramentPageCache } from "./sacramentPageCache";
+import { writeSacramentPageCache } from "./sacramentPageCache";
 import { sacramentQueryKeys } from "./sacramentQueryKeys";
 
 export type SacramentPageQueryKey = ReturnType<typeof sacramentQueryKeys.page>;
 
-/** Memory → IndexedDB → network. Prefetch/setQueryData hits skip the network. */
+/**
+ * Always fetch from the network when React Query asks.
+ * IndexedDB is only for instant paint (see SacramentClient hydrate) — never a
+ * permanent substitute for the DB, or localhost drifts from production forever.
+ */
 export async function loadSacramentPageQuery(
-  queryClient: QueryClient,
+  _queryClient: QueryClient,
   ctx: QueryFunctionContext<SacramentPageQueryKey>,
 ): Promise<SacramentPageBundle> {
-  const hit = queryClient.getQueryData<SacramentPageBundle>(ctx.queryKey);
-  if (hit) return hit;
   const [, , wardId, date] = ctx.queryKey;
-  const fromIdb = await readSacramentPageCache(wardId, date);
-  if (fromIdb) {
-    queryClient.setQueryData(ctx.queryKey, fromIdb);
-    return fromIdb;
-  }
   const fresh = await fetchSacramentPageJson(wardId, date);
-  queryClient.setQueryData(ctx.queryKey, fresh);
   void writeSacramentPageCache(wardId, date, fresh);
   return fresh;
 }
